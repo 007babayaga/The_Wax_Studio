@@ -6,6 +6,7 @@ const { apiRouter } = require('./api/routes');
 const app = express();
 
 require('dotenv').config()
+require("./config/db")
 
 app.use(express.json()); // Incoming request Body Parsing Middleware
 
