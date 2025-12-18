@@ -1,6 +1,7 @@
 const cookieParser = require('cookie-parser');
 const express = require('express');
 const morgan = require('morgan');
+const { apiRouter } = require('./api/routes');
 
 const app = express();
 
@@ -11,6 +12,9 @@ app.use(express.json()); // Incoming request Body Parsing Middleware
 app.use(cookieParser());  // Incoming request Cookie Parsing Middleware
 
 app.use(morgan('dev'));    // Incoming request Logger Middleware
+
+// Routing using MVC arctietcture
+app.use('/api/v1',apiRouter)
 
 
 // Ek Health check Api  Endpoint
