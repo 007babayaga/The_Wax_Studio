@@ -17,7 +17,6 @@ app.use(morgan('dev'));    // Incoming request Logger Middleware
 // Routing using MVC arctietcture
 app.use('/api/v1',apiRouter)
 
-
 // Ek Health check Api  Endpoint
 app.get("/",(req,res)=>{
     res.status(200).json({
