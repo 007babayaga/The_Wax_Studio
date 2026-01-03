@@ -1,5 +1,7 @@
+const { emailOtpModel } = require("../../../models/emailOtpSchema");
 const { phoneOtpModel } = require("../../../models/phoneOtpSchema");
 const axios = require('axios');
+const { sendOtp } = require("../../../utils/emailHelper");
 
 const sendOtpController =  async(req,res)=>{
     try{
@@ -88,4 +90,69 @@ const sendOtpController =  async(req,res)=>{
     }
 }
 
-module.exports={sendOtpController}
+const sendOtpToEmailController = async(req,res)=>{
+    try{
+        console.log("-----------------Inside sendOtpToEmailController------------")
+        const{email}= req.body;
+        //Rate limiting for recent otp request
+        const existingOtp = await emailOtpModel.findOne({email})
+
+        if (existingOtp) {
+            // Check if createdAt exists
+            if (existingOtp.createdAt) {
+                const timeSinceLastOtp = Date.now() - existingOtp.createdAt.getTime();
+                const oneMinute = 60 * 1000; // 1 minute
+
+                if (timeSinceLastOtp < oneMinute) {
+                    const waitTime = Math.ceil((oneMinute - timeSinceLastOtp) / 1000);
+                    
+                    res.status(429).json({
+                        isSuccess: false,
+                        message: `Please wait ${waitTime} seconds before requesting another OTP`
+                    });
+                    return
+                }
+            }
+            // Delete old OTP
+            console.log("Deleting old OTP...");
+            await emailOtpModel.findOneAndDelete({ email });
+        }
+        //generate the otp
+        const otp = Math.floor(Math.random()*9000 +1000);
+
+        //We send the Otp to email using EmailHelper file(NodeMailer)
+        await sendOtp(email,otp);
+
+         //Generate a expiry Time(5 minutes from now)
+        const otpExpiryTime = new Date(Date.now() + 5 * 60 * 1000); 
+
+        //before storing otp I will check for Duplicate Document
+        const otpdoc = await emailOtpModel.findOne({email});
+        if(otpdoc){
+            await emailOtpModel.findOneAndDelete({email})
+        }
+
+        //now store the otp,email,expirytime for Otp verification
+        await emailOtpModel.create({
+            email,
+            otp,
+            otpExpiryTime,
+            attempts: 0
+        })
+
+        res.status(201).json({
+            isSuccess:true,
+            message:"Otp sent Successfully"
+        })
+        
+    }
+    catch(err){
+        console.log("-------Error in sendOtpToEmailController----",err.message)
+        res.status(500).json({
+            isSuccess:false,
+            message:"Internal Server Error"
+        })
+    }
+}
+
+module.exports={sendOtpController,sendOtpToEmailController}

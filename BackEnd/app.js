@@ -1,3 +1,4 @@
+require('dotenv').config()
 const cookieParser = require('cookie-parser');
 const express = require('express');
 const morgan = require('morgan');
@@ -5,7 +6,6 @@ const { apiRouter } = require('./api/routes');
 
 const app = express();
 
-require('dotenv').config()
 require("./config/db")
 
 app.use(express.json()); // Incoming request Body Parsing Middleware
