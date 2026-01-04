@@ -1,7 +1,9 @@
+const bcrypt = require('bcrypt');
 const { emailOtpModel } = require("../../../models/emailOtpSchema");
 const { phoneOtpModel } = require("../../../models/phoneOtpSchema");
 const axios = require('axios');
 const { sendOtp } = require("../../../utils/emailHelper");
+const { userModel } = require('../../../models/userSchema');
 
 const sendOtpController =  async(req,res)=>{
     try{
@@ -94,6 +96,17 @@ const sendOtpToEmailController = async(req,res)=>{
     try{
         console.log("-----------------Inside sendOtpToEmailController------------")
         const{email}= req.body;
+
+        //check here to see if user Exists already
+        const isAlreadyaUser = await userModel.findOne({email});
+        if(isAlreadyaUser){
+            res.status(400).json({
+                isSuccess:false,
+                message:"User Already Exists!"
+            })
+            return
+        }
+        
         //Rate limiting for recent otp request
         const existingOtp = await emailOtpModel.findOne({email})
 
@@ -154,5 +167,56 @@ const sendOtpToEmailController = async(req,res)=>{
         })
     }
 }
+const otpVerificationController = async(req,res)=>{
+    try{
+        console.log("-----------------Inside otpVerificationController------------")
+        const{email,otp}= req.body;
 
-module.exports={sendOtpController,sendOtpToEmailController}
+        // get the Otp doc from Otp model using email
+        const otpdoc = await emailOtpModel.findOne({email});
+        if (otpdoc === null) {
+            res.status(400).json({
+                isSuccess: false,
+                message: "Otp not Found! Please send the Otp to this email First"
+            })
+            return
+        }
+        // check for otp Expiry
+        if (otpdoc.otpExpiryTime < Date.now()) {
+            res.status(400).json({
+                isSuccess: false,
+                message: "OTP Expired! Please request a new OTP."
+            });
+            return;
+        }
+
+        // comapred the hashed otp and user Entered otp using bcrypt
+        const {otp:hashedOtp}= otpdoc;
+
+        const isCorrect = await bcrypt.compare(otp.toString(),hashedOtp);
+        if(!isCorrect){
+            res.status(400).json({
+                isSuccess:false,
+                message:"Incorrect OTP!"
+            })
+            return
+        }
+        // delete the otp after successfull verification
+        await emailOtpModel.findOneAndDelete({email})
+
+        //send Success response
+        res.status(200).json({
+            isSuccess:true,
+            message:"OTP verification successs!"
+        })
+    }
+    catch(err){
+        console.log("-------Error in otpVerificationController----",err.message)
+        res.status(500).json({
+            isSuccess:false,
+            message:"Internal Server Error"
+        })
+    }
+}
+
+module.exports={sendOtpController,sendOtpToEmailController,otpVerificationController}

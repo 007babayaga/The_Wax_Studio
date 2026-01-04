@@ -85,6 +85,39 @@ const validateEmailforOtp = async(req,res,next) => {
         })
     }
 }
+const validateOtpVerification = async(req,res,next) => {
+    try {
+        console.log("------------Inside validateOtpVerification-------------")
+        const { email,otp } = req.body
+
+        //Check for Phone Number should surely coming in Body
+        if (!email) {
+            res.status(400).json({
+                isSuccess: false,
+                message: "Email is required"
+            })
+            return
+        }
+
+        //Check if it is String
+        if (!otp || otp.length <4) {
+            res.status(400).json({
+                success: false,
+                message: "Enter Valid Otp",
+            });
+            return
+        }
+
+        next();
+    }
+    catch (err) {
+        console.log("------------Error in validateOtpVerification---------", err.message)
+        res.status(400).json({
+            isSuccess: false,
+            message: "Error in validateOtpVerification"
+        })
+    }
+}
 
 
-module.exports = { validatePhoneNumberforOtp,validateEmailforOtp }
+module.exports = { validatePhoneNumberforOtp,validateEmailforOtp,validateOtpVerification }
