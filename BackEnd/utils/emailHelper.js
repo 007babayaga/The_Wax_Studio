@@ -36,145 +36,96 @@ const sendemail = async (toEmail, subject, htmlText) => {
 
 const sendOtp = async(toEmail, otp) => {
     console.log("sending email to..", toEmail);
+    
     await sendemail(
         toEmail,
-        "Verify Your Email - The Wax Studio",
+        "Verify Your Account - The Wax Studio",
         `
         <!doctype html>
         <html lang="en">
         <head>
             <meta charset="utf-8"/>
             <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-            <title>Email Verification - The Wax Studio</title>
+            <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+            <title>Verify Account - The Wax Studio</title>
+            <style type="text/css">
+                @media only screen and (max-width: 600px) {
+                    .container { width: 100% !important; }
+                    .padding { padding: 24px !important; }
+                    .otp-code { font-size: 28px !important; letter-spacing: 6px !important; }
+                    .brand-name { font-size: 20px !important; }
+                }
+            </style>
         </head>
-        <body style="margin:0; padding:0; background-color:#f8f5f2; font-family: 'Helvetica Neue', Arial, sans-serif;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f5f2; padding:40px 20px;">
+        <body style="margin:0; padding:0; background-color:#fafafa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;">
+            
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fafafa; padding:40px 16px;">
                 <tr>
                     <td align="center">
-                        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+                        <table role="presentation" class="container" width="560" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff; border-radius:8px; border:1px solid #e5e5e5; max-width:560px; width:100%;">
                             
-                            <!-- Header Section -->
+                            <!-- Header -->
                             <tr>
-                                <td style="background: linear-gradient(135deg, #8b7355 0%, #6b5b4a 100%); padding:50px 40px; text-align:center;">
-                                    <div style="background-color:rgba(255,255,255,0.15); border-radius:50%; width:80px; height:80px; margin:0 auto 20px; display:flex; align-items:center; justify-content:center;">
-                                        <span style="font-size:40px;">🕯️</span>
-                                    </div>
-                                    <h1 style="margin:0; color:#ffffff; font-size:28px; font-weight:400; letter-spacing:4px; text-transform:uppercase;">
-                                        The Wax Studio
+                                <td class="padding" style="padding:40px 40px 32px; text-align:center; border-bottom:1px solid #f0f0f0;">
+                                    <div style="font-size:28px; margin-bottom:8px;">🕯️</div>
+                                    <h1 class="brand-name" style="margin:0; color:#1a1a1a; font-size:22px; font-weight:500; letter-spacing:1px;">
+                                        THE WAX STUDIO
                                     </h1>
-                                    <p style="margin:12px 0 0 0; color:#f5e6d3; font-size:13px; letter-spacing:2px; text-transform:uppercase;">
-                                        Artisan Candles
-                                    </p>
                                 </td>
                             </tr>
                             
-                            <!-- Content Section -->
+                            <!-- Content -->
                             <tr>
-                                <td style="padding:50px 40px;">
-                                    <h2 style="margin:0 0 20px 0; color:#3d3226; font-size:22px; font-weight:600; text-align:center;">
-                                        Verify Your Email Address
+                                <td class="padding" style="padding:40px;">
+                                    <h2 style="margin:0 0 16px; color:#1a1a1a; font-size:18px; font-weight:600;">
+                                        Verify your account
                                     </h2>
-                                    <p style="margin:0 0 30px 0; font-size:15px; color:#5a4d3e; line-height:1.8; text-align:center;">
-                                        Thank you for joining The Wax Studio. To complete your registration and start exploring our handcrafted candle collection, please verify your email address using the code below.
+                                    
+                                    <p style="margin:0 0 32px; font-size:14px; color:#525252; line-height:1.5;">
+                                        Enter this verification code to complete your registration:
                                     </p>
                                     
-                                    <!-- OTP Box -->
-                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                    <!-- OTP -->
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                         <tr>
-                                            <td align="center" style="padding:20px 0 30px 0;">
-                                                <table cellpadding="0" cellspacing="0" style="background-color:#faf8f5; border:2px solid #d4a574; border-radius:10px; padding:30px 50px;">
-                                                    <tr>
-                                                        <td align="center">
-                                                            <p style="margin:0 0 12px 0; font-size:11px; color:#8b7355; text-transform:uppercase; letter-spacing:2px; font-weight:600;">
-                                                                Verification Code
-                                                            </p>
-                                                            <div style="font-size:38px; font-weight:700; letter-spacing:10px; color:#6b5b4a; font-family: 'Courier New', Courier, monospace;">
-                                                                ${otp}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                </table>
+                                            <td align="center" style="padding:0 0 32px;">
+                                                <div style="background-color:#f8f8f8; border:1px solid #e0e0e0; border-radius:6px; padding:20px; display:inline-block;">
+                                                    <div class="otp-code" style="font-size:32px; font-weight:600; letter-spacing:8px; color:#1a1a1a; font-family: 'Courier New', monospace;">
+                                                        ${otp}
+                                                    </div>
+                                                </div>
                                             </td>
                                         </tr>
                                     </table>
                                     
-                                    <!-- Important Notice -->
-                                    <table width="100%" cellpadding="0" cellspacing="0">
-                                        <tr>
-                                            <td style="background-color:#fff9f0; border-left:4px solid #d4a574; padding:20px 25px; border-radius:6px;">
-                                                <p style="margin:0 0 12px 0; font-size:14px; color:#3d3226; font-weight:600;">
-                                                    Important Information:
-                                                </p>
-                                                <p style="margin:0; font-size:13px; color:#5a4d3e; line-height:1.8;">
-                                                    • This code expires in <strong>5 minutes</strong><br/>
-                                                    • For security, do not share this code with anyone<br/>
-                                                    • If you didn't request this verification, please disregard this email
-                                                </p>
-                                            </td>
-                                        </tr>
-                                    </table>
-                                    
-                                    <!-- Call to Action -->
-                                    <p style="margin:30px 0 0 0; font-size:14px; color:#5a4d3e; text-align:center; line-height:1.6;">
-                                        Once verified, you'll have access to our exclusive collection of handcrafted candles, personalized design options, and special member offers.
-                                    </p>
+                                    <!-- Info -->
+                                    <div style="background-color:#f9f9f9; border-left:3px solid #1a1a1a; padding:16px; border-radius:4px;">
+                                        <p style="margin:0; font-size:13px; color:#525252; line-height:1.6;">
+                                            • Code expires in 5 minutes<br/>
+                                            • Keep this code confidential<br/>
+                                            • Didn't request this? Ignore this email
+                                        </p>
+                                    </div>
                                 </td>
                             </tr>
                             
-                            <!-- Footer Section -->
+                            <!-- Footer -->
                             <tr>
-                                <td style="background-color:#faf8f5; padding:40px; text-align:center; border-top:1px solid #e8dfd5;">
-                                    <p style="margin:0 0 15px 0; font-size:15px; color:#6b5b4a; font-weight:500;">
-                                        Why Choose The Wax Studio?
+                                <td class="padding" style="padding:32px 40px; background-color:#fafafa; border-top:1px solid #f0f0f0; text-align:center;">
+                                    <p style="margin:0 0 12px; font-size:13px; color:#525252;">
+                                        Questions? <a href="tel:+919719534452" style="color:#1a1a1a; text-decoration:none; font-weight:500;">+91 97195 34452</a>
                                     </p>
-                                    <table width="100%" cellpadding="0" cellspacing="0">
-                                        <tr>
-                                            <td width="33%" style="padding:10px; text-align:center;">
-                                                <p style="margin:0; font-size:24px;">🎨</p>
-                                                <p style="margin:8px 0 0 0; font-size:12px; color:#8b7355; line-height:1.5;">
-                                                    <strong>Custom Designs</strong><br/>
-                                                    Personalized for you
-                                                </p>
-                                            </td>
-                                            <td width="33%" style="padding:10px; text-align:center;">
-                                                <p style="margin:0; font-size:24px;">🌿</p>
-                                                <p style="margin:8px 0 0 0; font-size:12px; color:#8b7355; line-height:1.5;">
-                                                    <strong>Natural Ingredients</strong><br/>
-                                                    Eco-friendly & sustainable
-                                                </p>
-                                            </td>
-                                            <td width="33%" style="padding:10px; text-align:center;">
-                                                <p style="margin:0; font-size:24px;">✨</p>
-                                                <p style="margin:8px 0 0 0; font-size:12px; color:#8b7355; line-height:1.5;">
-                                                    <strong>Premium Quality</strong><br/>
-                                                    Handcrafted with care
-                                                </p>
-                                            </td>
-                                        </tr>
-                                    </table>
-                                    
-                                    <!-- Divider -->
-                                    <div style="margin:30px auto; width:60px; height:1px; background-color:#d4a574;"></div>
-                                    
-                                    <!-- Social & Legal -->
-                                    <p style="margin:0 0 8px 0; font-size:12px; color:#8b7355;">
-                                        Questions? Contact us at support@thewaxstudio.com
-                                    </p>
-                                    <p style="margin:0 0 20px 0; font-size:11px; color:#a89684; line-height:1.6;">
-                                        The Wax Studio | Handcrafted Artisan Candles<br/>
-                                        Creating ambiance, one candle at a time
-                                    </p>
-                                    <p style="margin:0; font-size:10px; color:#b5a594;">
-                                        © ${new Date().getFullYear()} The Wax Studio. All rights reserved.
+                                    <p style="margin:0; font-size:12px; color:#a3a3a3;">
+                                        The Wax Studio · Handcrafted Candles<br/>
+                                        © ${new Date().getFullYear()}
                                     </p>
                                 </td>
                             </tr>
-                            
                         </table>
                         
-                        <!-- Email Footer Note -->
-                        <p style="margin:20px 0 0 0; font-size:11px; color:#a89684; text-align:center; line-height:1.5;">
-                            -------This is an automated message. Please do not reply to this email.--------
+                        <!-- Disclaimer -->
+                        <p style="margin:24px 0 0; font-size:11px; color:#a3a3a3; text-align:center;">
+                            This is an automated message, please do not reply.
                         </p>
                     </td>
                 </tr>
@@ -186,3 +137,6 @@ const sendOtp = async(toEmail, otp) => {
 };
 
 module.exports = { sendOtp };
+
+module.exports = { sendOtp };
+
