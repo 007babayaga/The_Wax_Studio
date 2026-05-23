@@ -570,7 +570,7 @@ const App = () => {
         <section className="studio-card">
           <div className="studio-signup-title">Be First In Line</div>
           <p className="studio-signup-text">
-            Get notified when we launch. First access to new scents and limited releases.
+            Get notified when we launch. First access to new scents and limited releases. please wait guys we are so excited
           </p>
           
           {status === "success" ? (
