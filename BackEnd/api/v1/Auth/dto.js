@@ -34,21 +34,16 @@ const validateUserSignUp = async(req,res,next)=>{
             return
         }
 
-        //validate password
-        if(!password){
-            res.status(400).json({
-                isSuccess:false,
-                message:"Password is required"
-            })
-            return
-        }
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,12}$/;
-        if(!passwordRegex.test(password)){
-            res.status(400).json({
-                isSuccess:false,
-                message:"Enter a valid Password"
-            })
-            return
+        //validate password only if it is provided during the initial signup step
+        if(password){
+            const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,12}$/;
+            if(!passwordRegex.test(password)){
+                res.status(400).json({
+                    isSuccess:false,
+                    message:"Enter a valid Password"
+                })
+                return
+            }
         }
         
         next();

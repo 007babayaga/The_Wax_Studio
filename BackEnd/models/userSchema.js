@@ -1,41 +1,54 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt')
+const bcrypt = require('bcrypt');
 
-const{Schema,model}=mongoose;
+const { Schema, model } = mongoose;
 
 const userSchema = new Schema({
-    name:{
-        type:String,
-        min:3,
-        trim:true,
-        required:true
+    name: {
+        type: String,
+        required: true
     },
-    dateOfBirth:{
-        type:String,
-        trim:true,
-        required:true
+    dateOfBirth: {
+        type: Date,
+        required: function () {
+            return this.authProvider === 'local';
+        }
     },
-    email:{
-        type:String,
-        trim:true,
-        required:true
+    email: {
+        type: String,
+        required: true,
+        unique: true
     },
-    password:{
-        type:String,
-        required:true,
-        trim:true
+    password: {
+        type: String,
+        required: function () {
+            return this.authProvider === 'local';
+        }
+    },
+    googleId: {
+        type: String,
+        default: null
+    },
+    profilePicture: {
+        type: String,
+        default: ""
+    },
+    authProvider: {
+        type: String,
+        enum: ['local', 'google'],
+        default: 'local'
+    },
+    isVerified: {
+        type: Boolean,
+        default: false
     }
-},{
-    timestamps:true,
-    versionKey:false
-})
+}, { timestamps: true });
 
-userSchema.pre("save",async function(){
-    if(this.isModified("password")){
-        this.password = await bcrypt.hash(this.password.toString(),11)
-    }
-})
+userSchema.pre('save', async function () {
+    if (!this.password || !this.isModified('password') || this._skipPasswordHash) return;
+    this.password = await bcrypt.hash(this.password, 10);
+});
 
-const userModel = model("user",userSchema);
+const userModel = model('userSignUp', userSchema);
 
-module.exports={userModel};
+module.exports = { userModel };

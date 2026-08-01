@@ -138,5 +138,3 @@ const sendOtp = async(toEmail, otp) => {
 
 module.exports = { sendOtp };
 
-module.exports = { sendOtp };
-

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authRouter } = require('./v1/Auth/routes');
-const { otpRouter } = require('./v1/otps/routes');
+const { otpRouter } = require('./v1/Otp/routes');
+
 
 const apiRouter = express.Router();
 
