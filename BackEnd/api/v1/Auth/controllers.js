@@ -3,6 +3,7 @@ const { emailOtpModel } = require("../../../models/emailOtpSchema");
 const { sendOtp } = require("../../../utils/emailHelper");
 const { OAuth2Client } = require("google-auth-library");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 
 const userSignUpController = async (req, res) => {
     try {
@@ -21,7 +22,8 @@ const userSignUpController = async (req, res) => {
             name,
             dateOfBirth,
             email,
-            password
+            password,
+            isVerified: true
         })
         res.status(200).json({
             isSuccess: true,
@@ -107,5 +109,73 @@ const googleAuthController = async (req, res) => {
     }
 };
 
+const userLoginController = async (req, res) => {
+    try {
+        console.log("--------------Inside userLoginController----------------")
+        const { email, password } = req.body;
+        const normalizedEmail = (email || "").trim().toLowerCase();
 
-module.exports = { userSignUpController, googleAuthController };
+        const user = await userModel.findOne({ email: normalizedEmail });
+
+        if (!user) {
+            res.status(401).json({
+                isSuccess: false,
+                message: "Invalid email or password"
+            });
+            return
+        }
+
+        if (user.authProvider !== "local") {
+            res.status(401).json({
+                isSuccess: false,
+                message: "Please sign in with Google"
+            });
+            return 
+        }
+
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+
+        if (!isPasswordValid) {
+            res.status(401).json({
+                isSuccess: false,
+                message: "Invalid email or password"
+            });
+            return 
+        }
+
+        const token = jwt.sign(
+            { id: user._id, email: user.email },
+            process.env.JWT_SECRET,
+            { expiresIn: "7d" }
+        );
+
+        res.cookie("token", token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+
+        res.status(200).json({
+            isSuccess: true,
+            message: "Login Success!",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email
+            }
+        });
+    }
+    catch (err) {
+        console.log("-----------Error in userLoginController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Internal Server error"
+        });
+    }
+};
+
+
+
+
+module.exports = { userSignUpController, googleAuthController,userLoginController };
