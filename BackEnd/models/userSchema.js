@@ -3,6 +3,28 @@ const bcrypt = require('bcrypt');
 
 const { Schema, model } = mongoose;
 
+const sessionSchema = new Schema({
+    jti: {
+        type: String,
+        required: true
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    expiresAt: {
+        type: Date,
+        required: true
+    },
+    userAgent: {
+        type: String
+    },
+    ip: {
+        type:
+            String
+    }
+}, { _id: false });
+
 const userSchema = new Schema({
     name: {
         type: String,
@@ -41,7 +63,14 @@ const userSchema = new Schema({
     isVerified: {
         type: Boolean,
         default: false
-    }
+    },
+    role: {
+        type: String,
+        enum: ['user', 'admin'],
+        default: 'user'
+    },
+    tokenVersion: { type: Number, default: 0 },
+    sessions: { type: [sessionSchema], default: [] } 
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {
