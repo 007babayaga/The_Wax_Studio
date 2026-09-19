@@ -50,6 +50,48 @@ const getSafeNumber = (value, fieldName, { min = Number.MIN_SAFE_INTEGER, max = 
     return parsed;
 };
 
+const getErrorStatusCode = (err) => {
+    if (!err) return 500;
+
+    if (err.code === 11000 || err.name === 'MongoServerError' && err.code === 11000) {
+        return 409;
+    }
+
+    if (err.message && (
+        err.message.includes("required") ||
+        err.message.includes("must be") ||
+        err.message.includes("range") ||
+        err.message.includes("greater") ||
+        err.message.includes("invalid") ||
+        err.message.includes("Invalid")
+    )) {
+        return 400;
+    }
+
+    return 500;
+};
+
+const getErrorMessage = (err, fallback = "Internal Server Error") => {
+    if (!err) return fallback;
+
+    if (err.code === 11000 || err.name === 'MongoServerError' && err.code === 11000) {
+        return "A product with this SKU already exists";
+    }
+
+    if (err.message && (
+        err.message.includes("required") ||
+        err.message.includes("must be") ||
+        err.message.includes("range") ||
+        err.message.includes("greater") ||
+        err.message.includes("invalid") ||
+        err.message.includes("Invalid")
+    )) {
+        return err.message;
+    }
+
+    return fallback;
+};
+
 const validateProductPayload = (body) => {
     const {
         name,
@@ -165,13 +207,13 @@ const addProductController = async (req, res) => {
             product,
         });
     } catch (err) {
-        console.log("---Error in addProductController---", err.message);
+        console.log("---Error in addProductController---", err.message || err);
 
-        const statusCode = err.message.includes("required") || err.message.includes("must be") || err.message.includes("range") || err.message.includes("greater") ? 400 : 500;
+        const statusCode = getErrorStatusCode(err);
 
         return res.status(statusCode).json({
             isSuccess: false,
-            message: statusCode === 400 ? err.message : "Internal server Error",
+            message: getErrorMessage(err, "Internal server Error"),
         });
     }
 };
@@ -304,18 +346,19 @@ const editProductController = async (req, res) => {
             product.color = String(incoming.color).trim() || "white";
         }
 
+        if (incoming.isActive !== undefined) {
+            if (typeof incoming.isActive !== "boolean") {
+                return res.status(400).json({ isSuccess: false, message: "Product active state is invalid" });
+            }
+            product.isActive = incoming.isActive;
+        }
+
         if (incoming.tags !== undefined) {
             product.tags = normalizeTags(incoming.tags);
         }
 
         if (incoming.stock !== undefined) {
             product.stock = getSafeNumber(incoming.stock, "stock", { min: 0, max: 1000000 });
-
-            if (product.stock <= 0) {
-                product.isActive = false;
-            } else {
-                product.isActive = true;
-            }
         }
 
         if (incoming.variants !== undefined) {
@@ -350,13 +393,13 @@ const editProductController = async (req, res) => {
             product,
         });
     } catch (err) {
-        console.log("---Error in editProductController---", err.message);
+        console.log("---Error in editProductController---", err.message || err);
 
-        const statusCode = err.message.includes("must be") || err.message.includes("invalid") || err.message.includes("greater") || err.message.includes("Invalid") ? 400 : 500;
+        const statusCode = getErrorStatusCode(err);
 
         return res.status(statusCode).json({
             isSuccess: false,
-            message: statusCode === 400 ? err.message : "Internal Server Error",
+            message: getErrorMessage(err, "Internal Server Error"),
         });
     }
 };

@@ -70,14 +70,14 @@ const createRefreshToken = (user, jti) => jwt.sign(
 const isProd = process.env.NODE_ENV === "production";
 
 const setAuthCookies = (res, accessToken, refreshToken) => {
-    res.cookie(ACCESS_COOKIE_NAME, accessToken, {
+    res.cookie('access_token', accessToken, {
         httpOnly: true,
         secure: isProd,
         sameSite: isProd ? 'None' : 'Lax',
         path: '/',
         maxAge: 1000 * 60 * 60 // 1 hour
     });
-    res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+    res.cookie('refresh_token', refreshToken, {
         httpOnly: true,
         secure: isProd,
         sameSite: isProd ? 'None' : 'Lax',
