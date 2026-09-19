@@ -412,8 +412,15 @@ const App = () => {
   }
 
   async function handleSaveProduct() {
-    if (!productForm.name.trim() || !productForm.price || !productForm.category || !productForm.sku || !productForm.scent || !productForm.waxType || !productForm.weight || !productForm.imageFile) {
-      showToast("Name, price, category, SKU, scent, waxType, weight, and image are required", "error");
+    const isNewProduct = !editingProductId;
+
+    if (!productForm.name.trim() || !productForm.price || !productForm.category || !productForm.sku || !productForm.scent || !productForm.waxType || !productForm.weight) {
+      showToast("Name, price, category, SKU, scent, waxType, and weight are required", "error");
+      return;
+    }
+
+    if (isNewProduct && !productForm.imageFile) {
+      showToast("An image is required while adding a new product", "error");
       return;
     }
 
@@ -433,7 +440,10 @@ const App = () => {
     body.append("stock", Number(productForm.stock || 0));
     body.append("variants", productForm.variants ? productForm.variants : "[]");
     body.append("metaData", productForm.metaData ? productForm.metaData : "{}");
-    body.append("image", productForm.imageFile);
+
+    if (productForm.imageFile) {
+      body.append("image", productForm.imageFile);
+    }
 
     setProductLoading(true);
     try {
