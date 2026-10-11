@@ -1,9 +1,12 @@
+const crypto = require("crypto");
 const { Resend } = require("resend");
 
 const OTP_TTL_MINUTES = 5; // keep in sync with OTP_TTL_MS in the controller
-const SUPPORT_PHONE = process.env.SUPPORT_PHONE || "+91 97195 34452";
-const EMAIL_REGEX = /^[a-z]+[0-9]*@gmail\.com$/;
+const SUPPORT_PHONE = "+91 97195 34452";
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
 const OTP_REGEX = /^\d{5}$/;
+const FROM_REGEX =/^(?:[^<>"]+ <[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>|[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+)$/;
+const REPLY_TO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SEND_TIMEOUT_MS = 15000;
 
 let client = null;
@@ -19,16 +22,38 @@ const getClient = () => {
   return client;
 };
 
+// Single source of truth for the sender. Trims whitespace and stray quotes
+// (some hosts keep quotes in env values) and validates the format.
+const getFromAddress = () => {
+  const from = (process.env.ONBOARDING_EMAIL_FROM || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+
+  if (!from) {
+    throw new Error("ONBOARDING_EMAIL_FROM is not set");
+  }
+  if (!FROM_REGEX.test(from)) {
+    throw new Error(
+      'ONBOARDING_EMAIL_FROM must look like "orders@example.com" or "Name <orders@example.com>"'
+    );
+  }
+  return from;
+};
+
+const getReplyTo = () => {
+  const replyTo = (process.env.EMAIL_REPLY_TO || "").trim();
+  return replyTo && REPLY_TO_REGEX.test(replyTo) ? replyTo : null;
+};
+
 // Call once at startup, AFTER dotenv has loaded. Never crashes the app.
 // Resend has no connection handshake, so this only checks configuration.
 // A real send is the true test.
 const verifyEmailConnection = async () => {
   try {
     getClient();
-    if (!process.env.EMAIL_FROM) {
-      throw new Error("EMAIL_FROM is not set");
-    }
-    console.log("Email service configured");
+    getFromAddress();
+    console.log("------Email service configured--------");
     return true;
   } catch (err) {
     console.error("Email service config error:", err.message);
@@ -53,14 +78,21 @@ const withTimeout = (promise, ms) => {
 };
 
 const sendEmail = async ({ to, subject, html, text }) => {
-  const from = process.env.ONBOARDING_EMAIL_FROM;
-  if (!from) {
-    throw new Error("EMAIL_FROM is not set");
-  }
-
   try {
+    const from = getFromAddress();
+    const replyTo = getReplyTo();
+
     const { data, error } = await withTimeout(
-      getClient().emails.send({ from, to: [to], subject, html, text }),
+      getClient().emails.send({
+        from,
+        to: [to],
+        subject,
+        html,
+        text,
+        ...(replyTo && { replyTo }),
+        // Stops Gmail from grouping/collapsing similar OTP emails
+        headers: { "X-Entity-Ref-ID": crypto.randomUUID() },
+      }),
       SEND_TIMEOUT_MS
     );
 
@@ -78,7 +110,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
 };
 
 const buildOtpText = (otp) =>
-  `Your The Wax Studio verification code is ${otp}.\n\n` +
+  `Your verification code for The Wax Studio is ${otp}.\n\n` +
   `It expires in ${OTP_TTL_MINUTES} minutes. Keep this code confidential.\n` +
   `If you didn't request this, you can ignore this email.\n\n` +
   `Need help? Call ${SUPPORT_PHONE}.`;
@@ -168,7 +200,7 @@ const buildOtpHtml = (otp) => {
 
             <!-- Disclaimer -->
             <p style="margin:24px 0 0; font-size:11px; color:#aaa; text-align:center;">
-              This is an automated message. Please do not reply.
+              Questions? Just reply to this email.
             </p>
           </td>
         </tr>
@@ -179,9 +211,10 @@ const buildOtpHtml = (otp) => {
 };
 
 const sendOtp = async (toEmail, otp) => {
+  const email = typeof toEmail === "string" ? toEmail.trim().toLowerCase() : "";
   const otpString = String(otp);
 
-  if (typeof toEmail !== "string" || !EMAIL_REGEX.test(toEmail)) {
+  if (!EMAIL_REGEX.test(email)) {
     throw new Error("Invalid recipient email");
   }
   if (!OTP_REGEX.test(otpString)) {
@@ -189,8 +222,8 @@ const sendOtp = async (toEmail, otp) => {
   }
 
   await sendEmail({
-    to: toEmail,
-    subject: "Verify Your Account - The Wax Studio",
+    to: email,
+    subject: "Your verification code for The Wax Studio",
     html: buildOtpHtml(otpString),
     text: buildOtpText(otpString),
   });
