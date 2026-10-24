@@ -408,14 +408,14 @@ const refreshTokenController = async (req, res) => {
             }
         );
 
-        res.cookie(ACCESS_COOKIE_NAME, accessToken, {
+        res.cookie('access_token', accessToken, {
             httpOnly: true,
             secure: isProd,
             sameSite: isProd ? 'None' : 'Lax',
             path: '/',
             maxAge: 1000 * 60 * 60
         });
-        res.cookie(REFRESH_COOKIE_NAME, newRefreshToken, {
+        res.cookie('refresh_token', newRefreshToken, {
             httpOnly: true,
             secure: isProd,
             sameSite: isProd ? 'None' : 'Lax',
