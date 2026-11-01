@@ -9,6 +9,12 @@ const addProductSchema = new Schema(
             required: true,
             trim: true,
         },
+        slug: {
+            type: String,
+            default: "",
+            trim: true,
+            lowercase: true,
+        },
         description: {
             type: String,
             required: true,
@@ -34,6 +40,11 @@ const addProductSchema = new Schema(
         category: {
             type: String,
             required: true,
+            trim: true,
+        },
+        series: {
+            type: String,
+            default: "",
             trim: true,
         },
         sku: {

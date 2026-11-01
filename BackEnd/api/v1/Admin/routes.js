@@ -20,9 +20,15 @@ const upload = multer({
     },
 });
 
-adminRouter.post('/addProduct', isAuthenticated, isAdmin, upload.single('image'), addProductController);
+adminRouter.post('/addProduct', isAuthenticated, isAdmin, upload.fields([
+    { name: 'images', maxCount: 8 },
+    { name: 'image', maxCount: 1 },
+]), addProductController);
 adminRouter.get('/getProducts',isAuthenticated, isAdmin,getProductsController)
-adminRouter.put('/editProduct/:productId', isAuthenticated, isAdmin, upload.single('image'), editProductController);
+adminRouter.put('/editProduct/:productId', isAuthenticated, isAdmin, upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'images', maxCount: 8 },
+]), editProductController);
 adminRouter.delete('/editProduct/:productId', isAuthenticated, isAdmin, deleteProductController);
 
 module.exports={adminRouter}
