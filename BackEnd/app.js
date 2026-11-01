@@ -15,7 +15,7 @@ require("./config/db");
 
 const authLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 10,
+    max: 200,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -26,7 +26,7 @@ const authLimiter = rateLimit({
 
 const adminLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 100,
+    max: 200,
     standardHeaders: true,
     legacyHeaders: false,
     message: {

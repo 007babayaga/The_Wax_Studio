@@ -36,6 +36,18 @@ const normalizeTags = (tags) => {
     return [];
 };
 
+const parseIsActive = (value) => {
+    if (value === undefined) return true;
+    if (value === true || value === false) return value;
+    if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "true") return true;
+        if (normalized === "false") return false;
+    }
+
+    throw new Error("Product active state must be true or false");
+};
+
 const getSafeNumber = (value, fieldName, { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER, allowZero = true } = {}) => {
     const parsed = Number(value);
 
@@ -98,6 +110,7 @@ const validateProductPayload = (body) => {
         description,
         price,
         category,
+        series,
         sku,
         scent,
         waxType,
@@ -151,6 +164,7 @@ const validateProductPayload = (body) => {
         price: parsedPrice,
         offerPrice: parsedOfferPrice,
         category: category.trim(),
+        series: typeof series === "string" ? series.trim() : "",
         sku: sku.trim().toUpperCase(),
         scent: scent.trim(),
         burnTime: parsedBurnTime,
@@ -159,6 +173,7 @@ const validateProductPayload = (body) => {
         color: body.color ? String(body.color).trim() : "white",
         tags: normalizeTags(body.tags),
         stock: parsedStock,
+        isActive: parseIsActive(body.isActive),
         variants: parseJsonField(body.variants, []),
         metaData: parseJsonField(body.metaData, {}),
     };
@@ -173,7 +188,18 @@ const addProductController = async (req, res) => {
             });
         }
 
-        if (!req.file) {
+        let files = [];
+        if (Array.isArray(req.files)) {
+            files = req.files;
+        } else if (req.files?.images?.length) {
+            files = req.files.images;
+        } else if (req.files?.image?.length) {
+            files = req.files.image;
+        } else if (req.file) {
+            files = [req.file];
+        }
+
+        if (files.length === 0) {
             return res.status(400).json({
                 isSuccess: false,
                 message: "Product image is required",
@@ -182,22 +208,25 @@ const addProductController = async (req, res) => {
 
         const validatedPayload = validateProductPayload(req.body);
 
-        const uploadResult = await new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-                { folder: "products", resource_type: "image" },
-                (error, result) => {
-                    if (error) reject(error);
-                    else resolve(result);
-                }
-            );
+        const uploadedImages = await Promise.all(
+            files.map((file) => new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { folder: "products", resource_type: "image" },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    }
+                );
 
-            stream.end(req.file.buffer);
-        });
+                stream.end(file.buffer);
+            }))
+        );
+        const imageUrls = uploadedImages.map((result) => result.secure_url);
 
         const product = await ProductModel.create({
             ...validatedPayload,
-            imageUrl: uploadResult.secure_url,
-            images: [uploadResult.secure_url],
+            imageUrl: imageUrls[0],
+            images: imageUrls,
             createdBy: req.user._id,
         });
 
@@ -289,6 +318,17 @@ const editProductController = async (req, res) => {
             product.description = incoming.description.trim();
         }
 
+        if (incoming.slug !== undefined) {
+            if (typeof incoming.slug !== "string" || !incoming.slug.trim()) {
+                return res.status(400).json({ isSuccess: false, message: "Product slug is invalid" });
+            }
+            product.slug = incoming.slug.trim().toLowerCase();
+        }
+
+        if (incoming.series !== undefined) {
+            product.series = typeof incoming.series === "string" ? incoming.series.trim() : "";
+        }
+
         if (incoming.price !== undefined) {
             product.price = getSafeNumber(incoming.price, "price", { min: 0.01, max: 1000000 });
         }
@@ -304,6 +344,8 @@ const editProductController = async (req, res) => {
             }
 
             product.offerPrice = offerPrice;
+        } else if (incoming.offerPrice === null || incoming.offerPrice === "") {
+            product.offerPrice = null;
         }
 
         if (incoming.category !== undefined) {
@@ -347,10 +389,16 @@ const editProductController = async (req, res) => {
         }
 
         if (incoming.isActive !== undefined) {
-            if (typeof incoming.isActive !== "boolean") {
+            const activeValue =
+                incoming.isActive === "true"
+                    ? true
+                    : incoming.isActive === "false"
+                      ? false
+                      : incoming.isActive;
+            if (typeof activeValue !== "boolean") {
                 return res.status(400).json({ isSuccess: false, message: "Product active state is invalid" });
             }
-            product.isActive = incoming.isActive;
+            product.isActive = activeValue;
         }
 
         if (incoming.tags !== undefined) {
@@ -369,20 +417,54 @@ const editProductController = async (req, res) => {
             product.metaData = parseJsonField(incoming.metaData, {});
         }
 
-        if (req.file) {
-            const uploadResult = await new Promise((resolve, reject) => {
-                const stream = cloudinary.uploader.upload_stream(
-                    { folder: "products", resource_type: "image" },
-                    (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    }
-                );
-                stream.end(req.file.buffer);
-            });
+        const files = [
+            ...(req.files?.images ?? []),
+            ...(req.files?.image ?? []),
+            ...(req.file ? [req.file] : []),
+        ];
+        const retainedImages =
+            incoming.retainedImages !== undefined
+                ? parseJsonField(incoming.retainedImages, [])
+                : product.images?.length
+                  ? product.images
+                  : product.imageUrl
+                    ? [product.imageUrl]
+                    : [];
 
-            product.imageUrl = uploadResult.secure_url;
-            product.images = [uploadResult.secure_url];
+        if (!Array.isArray(retainedImages)) {
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Product gallery is invalid",
+            });
+        }
+
+        if (files.length > 0) {
+            const uploadedImages = await Promise.all(
+                files.map((file) => new Promise((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream(
+                        { folder: "products", resource_type: "image" },
+                        (error, result) => {
+                            if (error) reject(error);
+                            else resolve(result);
+                        }
+                    );
+                    stream.end(file.buffer);
+                }))
+            );
+            retainedImages.push(
+                ...uploadedImages.map((result) => result.secure_url)
+            );
+        }
+
+        if (incoming.retainedImages !== undefined || files.length > 0) {
+            if (retainedImages.length === 0) {
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Product image is required",
+                });
+            }
+            product.images = retainedImages;
+            product.imageUrl = retainedImages[0];
         }
 
         await product.save();
