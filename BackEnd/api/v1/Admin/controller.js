@@ -280,6 +280,42 @@ const getProductsController = async (req, res) => {
     }
 };
 
+const getSingleProductController = async (req, res) => {
+    try {
+        console.log("----------------Inside getSingleProductController----------------");
+        
+        const { productId } = req.params;
+
+        if (!isValidObjectId(productId)) {
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Invalid product id",
+            });
+        }
+
+        const product = await ProductModel.findById(productId);
+
+        if (!product) {
+            return res.status(404).json({
+                isSuccess: false,
+                message: "Product not found",
+            });
+        }
+
+        return res.status(200).json({
+            isSuccess: true,
+            message: "Product fetched successfully",
+            product,
+        });
+    } catch (err) {
+        console.log("-----Error in getSingleProductController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Internal Server Error",
+        });
+    }
+};
+
 const editProductController = async (req, res) => {
     try {
         console.log("---------Inside editProductController--------------");
@@ -524,4 +560,4 @@ const deleteProductController = async (req, res) => {
     }
 };
 
-module.exports = { addProductController, getProductsController, editProductController, deleteProductController };
+module.exports = { addProductController, getProductsController, editProductController, deleteProductController ,getSingleProductController};
