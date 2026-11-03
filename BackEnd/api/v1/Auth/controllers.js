@@ -322,6 +322,134 @@ const userLogoutController = async (req, res) => {
     }
 };
 
+const RESET_OTP_TTL_MS = 5 * 60 * 1000; // keep in sync with OTP_TTL_MINUTES in emailHelper
+const RESET_OTP_COOLDOWN_MS = 2 * 60 * 1000;
+const RESET_OTP_MAX_ATTEMPTS = 5;
+
+const forgotPasswordController = async (req, res) => {
+    try {
+        console.log("--------------Inside forgotPasswordController----------------");
+        const { email } = req.body;
+
+        // Same response whether or not the account exists, so emails can't be enumerated
+        const genericResponse = {
+            isSuccess: true,
+            message: "If an account exists for this email, an OTP has been sent"
+        };
+
+        const user = await userModel.findOne({ email });
+        if (!user || user.authProvider !== "local") {
+            return res.status(200).json(genericResponse);
+        }
+
+        const existingOtp = await emailOtpModel.findOne({ email });
+        if (existingOtp?.lastSentAt) {
+            const timeSinceLastOtp = Date.now() - new Date(existingOtp.lastSentAt).getTime();
+            if (timeSinceLastOtp < RESET_OTP_COOLDOWN_MS) {
+                const remainingSeconds = Math.ceil((RESET_OTP_COOLDOWN_MS - timeSinceLastOtp) / 1000);
+                return res.status(429).json({
+                    isSuccess: false,
+                    message: `Please wait ${remainingSeconds} seconds before requesting another OTP`
+                });
+            }
+        }
+
+        const otp = crypto.randomInt(10000, 100000).toString(); // 5-digit OTP
+
+        await emailOtpModel.deleteMany({ email });
+        await emailOtpModel.create({
+            email,
+            otp,
+            otpExpiryTime: new Date(Date.now() + RESET_OTP_TTL_MS),
+            lastSentAt: new Date()
+        });
+
+        await sendOtp(email, otp);
+
+        return res.status(200).json(genericResponse);
+    }
+    catch (err) {
+        console.log("-----------Error in forgotPasswordController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Internal Server error"
+        });
+    }
+};
+
+const resetPasswordController = async (req, res) => {
+    try {
+        console.log("--------------Inside resetPasswordController----------------");
+        const { email, otp, newPassword } = req.body;
+
+        const otpDoc = await emailOtpModel.findOne({ email });
+        if (!otpDoc) {
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Invalid or expired OTP"
+            });
+        }
+
+        if (new Date() > new Date(otpDoc.otpExpiryTime)) {
+            await emailOtpModel.deleteOne({ _id: otpDoc._id });
+            return res.status(400).json({
+                isSuccess: false,
+                message: "OTP has expired"
+            });
+        }
+
+        const isOtpMatched = await otpDoc.compareOtp(otp);
+        if (!isOtpMatched) {
+            const attempts = (otpDoc.attempts || 0) + 1;
+            if (attempts >= RESET_OTP_MAX_ATTEMPTS) {
+                await emailOtpModel.deleteOne({ _id: otpDoc._id });
+                return res.status(429).json({
+                    isSuccess: false,
+                    message: "Too many invalid attempts. Please request a new OTP"
+                });
+            }
+            await emailOtpModel.updateOne({ _id: otpDoc._id }, { $set: { attempts } });
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Invalid OTP"
+            });
+        }
+
+        const user = await userModel.findOne({ email });
+        if (!user || user.authProvider !== "local") {
+            await emailOtpModel.deleteOne({ _id: otpDoc._id });
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Invalid or expired OTP"
+            });
+        }
+
+        // pre('save') hook hashes the password; bumping tokenVersion and clearing
+        // sessions logs the user out of every device
+        user.password = String(newPassword);
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+        user.sessions = [];
+        await user.save();
+
+        await emailOtpModel.deleteOne({ _id: otpDoc._id });
+
+        res.clearCookie('access_token', { path: "/" });
+        res.clearCookie('refresh_token', { path: "/" });
+
+        return res.status(200).json({
+            isSuccess: true,
+            message: "Password reset successfully. Please login with your new password"
+        });
+    }
+    catch (err) {
+        console.log("-----------Error in resetPasswordController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Internal Server error"
+        });
+    }
+};
+
 const authStatusController = async (req, res) => {
     try {
         console.log("--------------Inside authStatusController----------------");
@@ -439,4 +567,4 @@ const refreshTokenController = async (req, res) => {
 
 
 
-module.exports = { userSignUpController, googleAuthController, userLoginController, refreshTokenController,userLogoutController,authStatusController };
+module.exports = { userSignUpController, googleAuthController, userLoginController, refreshTokenController,userLogoutController,forgotPasswordController,resetPasswordController,authStatusController };
