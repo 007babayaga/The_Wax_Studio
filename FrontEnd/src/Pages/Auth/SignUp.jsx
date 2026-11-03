@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router";
 import { GoogleAuthButton } from "../../Components/UI/GoogleAuthButton.jsx";
+import {
+    PasswordMatchHint,
+    PasswordRequirements,
+} from "../../Components/UI/PasswordRequirements.jsx";
+import {
+    isPasswordValid,
+    PASSWORD_MAX_LENGTH,
+} from "../../constants/passwordRules.js";
 import { useAuth } from "../../Context/Authcontext.jsx";
 
 import {
@@ -10,12 +18,11 @@ import {
     signUpUser,
 } from "../../Services/AuthService.js";
 
-import { getErrorMessage } from "../../Services/Api.js";
+import { ApiError, getErrorMessage } from "../../Services/Api.js";
 import { getPostLoginRoute, ROUTES } from "../../constants/routes.js";
 
-const MIN_PASSWORD_LENGTH = 6;
 const MIN_DATE_OF_BIRTH = "1900-01-01";
-const RESEND_COOLDOWN_SECONDS = 30;
+const RESEND_COOLDOWN_SECONDS = 120; // keep in sync with the backend OTP cooldown
 
 // Google Identity Services only accepts button widths between 200 and 400px.
 const GOOGLE_BUTTON_MIN_WIDTH = 200;
@@ -178,6 +185,17 @@ const SignUp = () => {
             toast.success(response?.message || "OTP sent successfully");
             return true;
         } catch (error) {
+            // 429 = an OTP was sent to this email less than the cooldown ago and
+            // is still valid, so let the user continue with that one.
+            if (error instanceof ApiError && error.status === 429) {
+                setForm((prev) => ({ ...prev, name, email }));
+                setResendSeconds(
+                    Number(error.data?.retryAfterSeconds) || RESEND_COOLDOWN_SECONDS
+                );
+                toast.info("An OTP was already sent to your email. Please use that one.");
+                return true;
+            }
+
             toast.error(getErrorMessage(error));
             return false;
         } finally {
@@ -240,10 +258,8 @@ const SignUp = () => {
         e.preventDefault();
         if (loading) return;
 
-        if (form.password.length < MIN_PASSWORD_LENGTH) {
-            toast.error(
-                `Password must be at least ${MIN_PASSWORD_LENGTH} characters long`
-            );
+        if (!isPasswordValid(form.password)) {
+            toast.error("Password does not meet all the requirements");
             return;
         }
 
@@ -485,7 +501,8 @@ const SignUp = () => {
                                     value={form.password}
                                     onChange={handleChange}
                                     placeholder="Create a password"
-                                    minLength={MIN_PASSWORD_LENGTH}
+                                    maxLength={PASSWORD_MAX_LENGTH}
+                                    aria-describedby="password-requirements"
                                     className={`${INPUT_CLASS} pr-20`}
                                     required
                                 />
@@ -505,6 +522,10 @@ const SignUp = () => {
                                     {passwordVisible ? "Hide" : "Show"}
                                 </button>
                             </div>
+                            <PasswordRequirements
+                                id="password-requirements"
+                                password={form.password}
+                            />
                         </div>
 
                         <div>
@@ -528,6 +549,7 @@ const SignUp = () => {
                                     value={form.confirmPassword}
                                     onChange={handleChange}
                                     placeholder="Confirm your password"
+                                    maxLength={PASSWORD_MAX_LENGTH}
                                     className={`${INPUT_CLASS} pr-20`}
                                     required
                                 />
@@ -549,6 +571,10 @@ const SignUp = () => {
                                     {confirmPasswordVisible ? "Hide" : "Show"}
                                 </button>
                             </div>
+                            <PasswordMatchHint
+                                password={form.password}
+                                confirmPassword={form.confirmPassword}
+                            />
                         </div>
 
                         <button

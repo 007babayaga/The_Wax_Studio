@@ -2,6 +2,8 @@ import { Route, Routes } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { SignUp } from "../Pages/Auth/SignUp";
 import { Login } from "../Pages/Auth/Login";
+import { ForgotPassword } from "../Pages/Auth/ForgotPassword";
+import { ResetPassword } from "../Pages/Auth/ResetPassword";
 import { GuestRoute, RequireAdmin } from "./Guards";
 import { AdminLayout } from "../Layouts/AdminLayout";
 import { Product } from "../Pages/Admin/Products";
@@ -21,6 +23,8 @@ const AppRoutes = () => {
             <Route element={<GuestRoute />}>
                 <Route path={ROUTES.LOGIN} element={<Login />} />
                 <Route path={ROUTES.SIGNUP} element={<SignUp />} />
+                <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPassword />} />
+                <Route path={ROUTES.RESET_PASSWORD} element={<ResetPassword />} />
             </Route>
             <Route element={<RequireAdmin />}>
                 <Route element={<AdminLayout />}>

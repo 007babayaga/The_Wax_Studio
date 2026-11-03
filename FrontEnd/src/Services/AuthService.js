@@ -15,6 +15,14 @@ const verifyEmailOtp = ({ email, otp }) =>
 const signUpUser = ({ name, email, dateOfBirth ,password}) =>
     api.post("/auth/signUp", { name, email, dateOfBirth ,password}, { skipRefresh: true });
 
+// forgot / reset password
+const forgotPassword = ({ email }) =>
+    api.post("/auth/forgotPassword", { email }, { skipRefresh: true });
+
+// forgot / reset password
+const resetPassword = ({ email, otp, newPassword }) =>
+    api.post("/auth/resetPassword", { email, otp, newPassword }, { skipRefresh: true });
+
 const googleLogin = (idToken) =>
     api.post("/auth/google", { idToken }, { skipRefresh: true });
 
@@ -32,4 +40,4 @@ const getCurrentUser = async ({ signal } = {}) => {
 const logoutUser = () =>
     api.post("/auth/userLogout", undefined, { skipRefresh: true });
 
-export { loginUser, sendEmailOtp, verifyEmailOtp, signUpUser, googleLogin, getCurrentUser, logoutUser };
+export { loginUser, sendEmailOtp, verifyEmailOtp, signUpUser, forgotPassword, resetPassword, googleLogin, getCurrentUser, logoutUser };

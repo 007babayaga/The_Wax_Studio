@@ -6,7 +6,7 @@ import { GoogleAuthButton } from "../../Components/UI/GoogleAuthButton.jsx";
 import { useAuth } from "../../Context/Authcontext.jsx";
 import { getErrorMessage } from "../../Services/Api.js";
 import { loginUser } from "../../Services/AuthService.js";
-import { getPostLoginRoute } from "../../constants/routes.js";
+import { getPostLoginRoute, ROUTES } from "../../constants/routes.js";
 
 const LABEL_CLASS =
     "mb-1.5 block text-xs uppercase tracking-widest text-[#6B6B6B] font-bold";
@@ -132,6 +132,14 @@ const Login = () => {
                             >
                                 {passwordVisible ? "Hide" : "Show"}
                             </button>
+                        </div>
+                        <div className="mt-2 text-right">
+                            <Link
+                                to={ROUTES.FORGOT_PASSWORD}
+                                className="text-sm font-medium text-[#644429] hover:text-[#84654C]"
+                            >
+                                Forgot password?
+                            </Link>
                         </div>
                     </div>
 

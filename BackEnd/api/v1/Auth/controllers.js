@@ -349,7 +349,8 @@ const forgotPasswordController = async (req, res) => {
                 const remainingSeconds = Math.ceil((RESET_OTP_COOLDOWN_MS - timeSinceLastOtp) / 1000);
                 return res.status(429).json({
                     isSuccess: false,
-                    message: `Please wait ${remainingSeconds} seconds before requesting another OTP`
+                    message: `Please wait ${remainingSeconds} seconds before requesting another OTP`,
+                    retryAfterSeconds: remainingSeconds
                 });
             }
         }

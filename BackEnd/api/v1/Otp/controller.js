@@ -29,6 +29,23 @@ const sendOtpController = async(req,res)=>{
             return
         }
 
+        const existingOtp = await emailOtpModel.findOne({ email }).sort({ createdAt: -1 })
+        if (existingOtp) {
+            const cooldownTime = 2 * 60 * 1000
+            const lastOtpSentAt = existingOtp.lastSentAt || existingOtp.createdAt
+            const timeSinceLastOtp = Date.now() - new Date(lastOtpSentAt)
+
+            if (timeSinceLastOtp < cooldownTime) {
+                const remainingSeconds = Math.ceil((cooldownTime - timeSinceLastOtp) / 1000)
+                res.status(429).json({
+                    isSuccess: false,
+                    message: `Please wait ${remainingSeconds} seconds before requesting another OTP`,
+                    retryAfterSeconds: remainingSeconds
+                })
+                return
+            }
+        }
+
         const otp = generateOtp()
         const otpExpiryTime = new Date(Date.now() + 5 * 60 * 1000)
         const lastSentAt = new Date()
