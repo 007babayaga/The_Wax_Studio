@@ -15,6 +15,10 @@ import {
 } from "../../Services/AdminService.js";
 import { getErrorMessage } from "../../Services/Api.js";
 import { ROUTES } from "../../constants/routes.js";
+import {
+    PRODUCT_CATEGORIES,
+    PRODUCT_CATEGORY_GROUPS,
+} from "../../constants/productCategories.js";
 import masterPhoto from "../../assets/admin/064cf.png";
 import galleryPhotoOne from "../../assets/admin/f3662.png";
 import galleryPhotoTwo from "../../assets/admin/cc294.png";
@@ -385,7 +389,7 @@ const EditProduct = () => {
     return (
         <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid gap-5 xl:grid-cols-[minmax(0,407fr)_minmax(0,689fr)]">
-                <section className="rounded-xl bg-white p-5 shadow-[0_1px_1.5px_rgba(0,0,0,0.2)] xl:h-[716.375px]">
+                <section className="rounded-xl bg-white p-5 shadow-[0_1px_1.5px_rgba(0,0,0,0.2)] xl:min-h-179">
                     <div className="mb-3 flex items-center justify-between border-b border-[#F1F5F9] pb-3">
                         <div>
                             <h1 className="text-xl leading-5 font-semibold text-[#111827]">
@@ -528,9 +532,10 @@ const EditProduct = () => {
                             src={photographyTipIcon}
                             alt=""
                             aria-hidden="true"
-                            className="mt-0.5 shrink-0"
+                            className="mt-0.5 h-4 w-4 shrink-0"
                         />
-                        <p>
+                        <p className="min-w-0">
+
                             <span className="font-semibold">
                                 Pro Recommendation:
                             </span>
@@ -543,7 +548,7 @@ const EditProduct = () => {
                     </div>
                 </section>
 
-                <section className="min-h-[716px] rounded-xl bg-white p-5 shadow-[0_1px_1.5px_rgba(0,0,0,0.2)] xl:h-[716px]">
+                <section className="rounded-xl bg-white p-5 shadow-[0_1px_1.5px_rgba(0,0,0,0.2)] xl:min-h-179">
                     <div className="mb-3 border-b border-[#F1F5F9] pb-3">
                         <h2 className="text-xl leading-5 font-semibold text-[#111827]">
                             General Information
@@ -638,27 +643,27 @@ const EditProduct = () => {
                                         <option value="" disabled>
                                             Select a category
                                         </option>
-                                        {![
-                                            "Scented Candles",
-                                            "Wax Melts",
-                                            "Home Fragrance",
-                                            "Accessories",
-                                        ].includes(form.category) &&
+                                        {!PRODUCT_CATEGORIES.includes(form.category) &&
                                             form.category && (
                                                 <option value={form.category}>
                                                     {form.category}
                                                 </option>
                                             )}
-                                        <option value="Scented Candles">
-                                            Scented Candles
-                                        </option>
-                                        <option value="Wax Melts">Wax Melts</option>
-                                        <option value="Home Fragrance">
-                                            Home Fragrance
-                                        </option>
-                                        <option value="Accessories">
-                                            Accessories
-                                        </option>
+                                        {PRODUCT_CATEGORY_GROUPS.map((group) => (
+                                            <optgroup
+                                                key={group.label}
+                                                label={group.label}
+                                            >
+                                                {group.categories.map((category) => (
+                                                    <option
+                                                        key={category}
+                                                        value={category}
+                                                    >
+                                                        {category}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        ))}
                                     </select>
                                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 -rotate-90">
                                         <img

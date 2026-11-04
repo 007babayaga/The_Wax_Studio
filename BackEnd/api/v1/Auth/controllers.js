@@ -1,6 +1,7 @@
-const { userModel } = require("../../../models/userSchema");
+﻿const { userModel } = require("../../../models/userSchema");
 const { emailOtpModel } = require("../../../models/emailOtpSchema");
 const { sendOtp } = require("../../../utils/emailHelper");
+const { uploadImageBuffer, deleteImage } = require("../../../utils/cloudinaryHelper");
 const { OAuth2Client } = require("google-auth-library");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
@@ -165,7 +166,11 @@ const googleAuthController = async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                profilePicture: user.profilePicture,
+                phone: user.phone,
+                notificationPreferences: user.notificationPreferences,
+                authProvider: user.authProvider
             }
         });
     } catch (err) {
@@ -266,7 +271,11 @@ const userLoginController = async (req, res) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                profilePicture: user.profilePicture,
+                phone: user.phone,
+                notificationPreferences: user.notificationPreferences,
+                authProvider: user.authProvider
             }
         });
     }
@@ -464,7 +473,7 @@ const authStatusController = async (req, res) => {
             });
         }
 
-        const user = await userModel.findById(userId).select('name email role');
+        const user = await userModel.findById(userId).select('name email role profilePicture phone notificationPreferences authProvider');
         if (!user) {
             return res.status(404).json({
                 isSuccess: false,
@@ -484,6 +493,261 @@ const authStatusController = async (req, res) => {
             message: "Internal Server error"
         });
         return
+    }
+};
+
+const uploadProfilePictureController = async (req, res) => {
+    try {
+        console.log("--------------Inside uploadProfilePictureController----------------");
+
+        const userId = req.user?.id || req.user?._id;
+        if (!userId) {
+            return res.status(401).json({
+                isSuccess: false,
+                message: "Authentication required"
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Profile photo is required"
+            });
+        }
+
+        const user = await userModel.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                isSuccess: false,
+                message: "User not found"
+            });
+        }
+
+        // Cloudinary re-encodes the image, so whatever was uploaded is stored
+        // as a clean 400x400 picture cropped around the face.
+        const result = await uploadImageBuffer(req.file.buffer, {
+            folder: "profile_pictures",
+            transformation: [
+                { width: 400, height: 400, crop: "fill", gravity: "face" },
+                { quality: "auto", fetch_format: "auto" }
+            ]
+        });
+
+        const previousPublicId = user.profilePicturePublicId;
+
+        user.profilePicture = result.secure_url;
+        user.profilePicturePublicId = result.public_id;
+        await user.save();
+
+        // Best effort: a failed cleanup shouldn't fail the upload.
+        if (previousPublicId) {
+            deleteImage(previousPublicId).catch((err) =>
+                console.log("---Could not delete old profile picture---", err.message)
+            );
+        }
+
+        return res.status(200).json({
+            isSuccess: true,
+            message: "Profile photo updated successfully",
+            profilePicture: user.profilePicture
+        });
+    } catch (err) {
+        console.log("-----------Error in uploadProfilePictureController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Could not upload profile photo"
+        });
+    }
+};
+
+const ALLOWED_COUNTRY_CODES = ["+91", "+1", "+44", "+971"];
+const NOTIFICATION_KEYS = ["email", "push", "sms"];
+
+// Partial update: only the fields that are sent get changed.
+const updateProfileController = async (req, res) => {
+    try {
+        console.log("--------------Inside updateProfileController----------------");
+
+        const userId = req.user?.id || req.user?._id;
+        if (!userId) {
+            return res.status(401).json({
+                isSuccess: false,
+                message: "Authentication required"
+            });
+        }
+
+        const { name, phone, notificationPreferences } = req.body || {};
+        const updates = {};
+
+        if (name !== undefined) {
+            const trimmedName = typeof name === "string" ? name.trim() : "";
+            if (trimmedName.length < 3 || trimmedName.length > 80) {
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Name must be between 3 and 80 characters"
+                });
+            }
+            updates.name = trimmedName;
+        }
+
+        if (phone !== undefined) {
+            const countryCode = String(phone?.countryCode ?? "+91");
+            const number = String(phone?.number ?? "").replace(/[\s-]/g, "");
+
+            if (!ALLOWED_COUNTRY_CODES.includes(countryCode)) {
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Unsupported country code"
+                });
+            }
+            // Empty clears the number; otherwise 6-15 digits.
+            if (number && !/^\d{6,15}$/.test(number)) {
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Enter a valid phone number"
+                });
+            }
+            updates["phone.countryCode"] = countryCode;
+            updates["phone.number"] = number;
+        }
+
+        if (notificationPreferences !== undefined) {
+            if (typeof notificationPreferences !== "object" || notificationPreferences === null) {
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Notification preferences are invalid"
+                });
+            }
+            for (const key of NOTIFICATION_KEYS) {
+                const value = notificationPreferences[key];
+                if (value === undefined) continue;
+                if (typeof value !== "boolean") {
+                    return res.status(400).json({
+                        isSuccess: false,
+                        message: "Notification preferences must be true or false"
+                    });
+                }
+                updates[`notificationPreferences.${key}`] = value;
+            }
+        }
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({
+                isSuccess: false,
+                message: "Nothing to update"
+            });
+        }
+
+        const user = await userModel
+            .findByIdAndUpdate(userId, { $set: updates }, { returnDocument: "after", runValidators: true })
+            .select("name email role profilePicture phone notificationPreferences authProvider");
+
+        if (!user) {
+            return res.status(404).json({
+                isSuccess: false,
+                message: "User not found"
+            });
+        }
+
+        return res.status(200).json({
+            isSuccess: true,
+            message: "Profile updated successfully",
+            user
+        });
+    } catch (err) {
+        console.log("-----------Error in updateProfileController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Could not update profile"
+        });
+    }
+};
+
+// Google accounts have no password, so they confirm by typing this instead.
+const DELETE_CONFIRMATION_TEXT = "DELETE";
+
+// Permanently deletes the signed-in account. Products the user created stay
+// in the catalog; only the account itself is removed.
+const deleteAccountController = async (req, res) => {
+    try {
+        console.log("--------------Inside deleteAccountController----------------");
+
+        const userId = req.user?.id || req.user?._id;
+        if (!userId) {
+            return res.status(401).json({
+                isSuccess: false,
+                message: "Authentication required"
+            });
+        }
+
+        const user = await userModel.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                isSuccess: false,
+                message: "User not found"
+            });
+        }
+
+        // Wrong confirmation is 403, not 401, so the frontend doesn't treat it
+        // as an expired session and try to refresh.
+        const { password, confirmation } = req.body || {};
+        if (user.authProvider === "local") {
+            if (!password) {
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Password is required"
+                });
+            }
+            const isPasswordValid = await bcrypt.compare(String(password), user.password);
+            if (!isPasswordValid) {
+                return res.status(403).json({
+                    isSuccess: false,
+                    message: "Incorrect password"
+                });
+            }
+        } else if (String(confirmation || "").trim() !== DELETE_CONFIRMATION_TEXT) {
+            return res.status(400).json({
+                isSuccess: false,
+                message: `Type ${DELETE_CONFIRMATION_TEXT} to confirm`
+            });
+        }
+
+        // Never leave the store without an admin who can sign in.
+        if (user.role === "admin") {
+            const adminCount = await userModel.countDocuments({ role: "admin" });
+            if (adminCount <= 1) {
+                return res.status(409).json({
+                    isSuccess: false,
+                    message: "You are the only admin. Make another account an admin before deleting this one"
+                });
+            }
+        }
+
+        const profilePicturePublicId = user.profilePicturePublicId;
+
+        await userModel.deleteOne({ _id: user._id });
+        await emailOtpModel.deleteMany({ email: user.email });
+
+        // Best effort: a failed cleanup shouldn't fail the deletion.
+        if (profilePicturePublicId) {
+            deleteImage(profilePicturePublicId).catch((err) =>
+                console.log("---Could not delete profile picture---", err.message)
+            );
+        }
+
+        res.clearCookie('access_token', { path: "/" });
+        res.clearCookie('refresh_token', { path: "/" });
+
+        return res.status(200).json({
+            isSuccess: true,
+            message: "Account deleted successfully"
+        });
+    } catch (err) {
+        console.log("-----------Error in deleteAccountController------", err.message);
+        return res.status(500).json({
+            isSuccess: false,
+            message: "Could not delete account"
+        });
     }
 };
 
@@ -568,4 +832,4 @@ const refreshTokenController = async (req, res) => {
 
 
 
-module.exports = { userSignUpController, googleAuthController, userLoginController, refreshTokenController,userLogoutController,forgotPasswordController,resetPasswordController,authStatusController };
+module.exports = { userSignUpController, googleAuthController, userLoginController, refreshTokenController,userLogoutController,forgotPasswordController,resetPasswordController,authStatusController,uploadProfilePictureController,updateProfileController,deleteAccountController };

@@ -15,11 +15,10 @@ import {
 import { addProduct } from "../../Services/AdminService.js";
 import { getErrorMessage } from "../../Services/Api.js";
 import { ROUTES } from "../../constants/routes.js";
+import { PRODUCT_CATEGORY_GROUPS } from "../../constants/productCategories.js";
 import galleryExampleOne from "../../assets/admin/product-gallery-example-1.jpeg";
 import galleryExampleTwo from "../../assets/admin/product-gallery-example-2.jpeg";
 import galleryExampleThree from "../../assets/admin/product-gallery-example-3.jpeg";
-import draftSavedIndicator from "../../assets/admin/draft-saved-indicator.svg";
-import livePreviewEye from "../../assets/admin/live-preview-eye.svg";
 
 const MAX_IMAGES = 8;
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -137,13 +136,15 @@ const AddProduct = () => {
             return true;
         });
 
-        setImages((current) => {
-            const remainingSlots = MAX_IMAGES - current.length;
-            if (validFiles.length > remainingSlots) {
-                toast.error(`You can add up to ${MAX_IMAGES} product images.`);
-            }
-            return [...current, ...validFiles.slice(0, remainingSlots)];
-        });
+        const remainingSlots = MAX_IMAGES - images.length;
+        if (validFiles.length > remainingSlots) {
+            toast.error(`You can add up to ${MAX_IMAGES} product images.`);
+        }
+
+        const newImages = validFiles
+            .slice(0, Math.max(0, remainingSlots))
+            .map((file) => ({ id: crypto.randomUUID(), file }));
+        setImages((current) => [...current, ...newImages].slice(0, MAX_IMAGES));
     };
 
     const removeImage = (indexToRemove) => {
@@ -152,13 +153,30 @@ const AddProduct = () => {
         );
     };
 
+    // Commas are the separator sent to the backend, so "a, b" adds two tags.
     const addTag = () => {
-        const tag = tagInput.trim();
-        if (!tag || tags.some((existingTag) => existingTag.toLowerCase() === tag.toLowerCase())) {
-            return;
+        const seen = new Set(tags.map((tag) => tag.toLowerCase()));
+        const newTags = [];
+        let hadDuplicate = false;
+
+        tagInput
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+            .forEach((tag) => {
+                if (seen.has(tag.toLowerCase())) {
+                    hadDuplicate = true;
+                    return;
+                }
+                seen.add(tag.toLowerCase());
+                newTags.push(tag);
+            });
+
+        if (hadDuplicate) {
+            toast.info("That tag has already been added.");
         }
 
-        setTags((current) => [...current, tag]);
+        setTags((current) => [...current, ...newTags]);
         setTagInput("");
     };
 
@@ -201,6 +219,9 @@ const AddProduct = () => {
         setIsSaving(true);
         const payload = new FormData();
         Object.entries(form).forEach(([key, value]) => payload.append(key, value));
+        if (!form.burnTime && burnEstimateRange) {
+            payload.set("burnTime", burnEstimateRange.min);
+        }
         payload.append("tags", tags.join(","));
         payload.append("variants", JSON.stringify(variants));
         payload.append(
@@ -213,7 +234,7 @@ const AddProduct = () => {
                     .filter(Boolean),
             })
         );
-        images.forEach((image) => payload.append("images", image));
+        images.forEach(({ file }) => payload.append("images", file));
 
         try {
             await addProduct(payload);
@@ -226,12 +247,39 @@ const AddProduct = () => {
         }
     };
 
-    const burnEstimate = form.weight
-        ? `${Math.max(1, Math.round(Number(form.weight) / 4))} – ${Math.max(
-              2,
-              Math.round(Number(form.weight) / 3.6)
-          )} Hours`
+    const burnEstimateRange = form.weight
+        ? {
+              min: Math.max(1, Math.round(Number(form.weight) / 4)),
+              max: Math.max(2, Math.round(Number(form.weight) / 3.6)),
+          }
+        : null;
+    const burnEstimate = burnEstimateRange
+        ? `${burnEstimateRange.min} – ${burnEstimateRange.max} Hours`
         : "Calculated from net weight";
+
+    const isDirty =
+        images.length > 0 ||
+        tags.length > 0 ||
+        variants.length > 0 ||
+        metaTitle.trim() !== "" ||
+        metaKeywords.trim() !== "" ||
+        Object.entries(form).some(([key, value]) =>
+            key === "color"
+                ? value !== "white"
+                : key === "isActive"
+                  ? value !== true
+                  : value !== ""
+        );
+
+    const handleCancel = () => {
+        if (
+            isDirty &&
+            !window.confirm("Discard this product? Your changes will be lost.")
+        ) {
+            return;
+        }
+        navigate(ROUTES.ADMIN_PRODUCTS);
+    };
 
     return (
         <>
@@ -333,8 +381,8 @@ const AddProduct = () => {
                         <div className="mt-2 grid grid-cols-3 gap-3">
                             {images.map((image, index) => (
                                 <ImageThumbnail
-                                    key={`${image.name}-${image.lastModified}-${index}`}
-                                    file={image}
+                                    key={image.id}
+                                    file={image.file}
                                     index={index}
                                     onRemove={removeImage}
                                 />
@@ -473,14 +521,21 @@ const AddProduct = () => {
                                         <option value="" disabled>
                                             Select a category
                                         </option>
-                                        <option value="Scented Candles">
-                                            Scented Candles
-                                        </option>
-                                        <option value="Wax Melts">Wax Melts</option>
-                                        <option value="Home Fragrance">
-                                            Home Fragrance
-                                        </option>
-                                        <option value="Accessories">Accessories</option>
+                                        {PRODUCT_CATEGORY_GROUPS.map((group) => (
+                                            <optgroup
+                                                key={group.label}
+                                                label={group.label}
+                                            >
+                                                {group.categories.map((category) => (
+                                                    <option
+                                                        key={category}
+                                                        value={category}
+                                                    >
+                                                        {category}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        ))}
                                     </select>
                                     <FiChevronDown className="pointer-events-none absolute right-3 top-3 text-[#64748B]" />
                                 </div>
@@ -728,7 +783,7 @@ const AddProduct = () => {
                                 id="product-weight"
                                 name="weight"
                                 type="number"
-                                min="0.01"
+                                min="1"
                                 step="1"
                                 value={form.weight}
                                 onChange={updateField}
@@ -833,6 +888,12 @@ const AddProduct = () => {
                                 onChange={(event) =>
                                     setVariantType(event.target.value)
                                 }
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        addVariant();
+                                    }
+                                }}
                                 placeholder="Type (e.g. Size)"
                                 aria-label="Variant type"
                                 className={inputClassName}
@@ -944,9 +1005,11 @@ const AddProduct = () => {
                                 : burnEstimate}
                         </p>
                         <p className="mt-1 text-[11px] text-[#64748B]">
-                            {form.weight
-                                ? `Estimated for ${form.weight} g net weight`
-                                : "Calculated from net weight"}
+                            {form.burnTime
+                                ? "Entered manually"
+                                : burnEstimateRange
+                                  ? `Estimated for ${form.weight} g · saves as ${burnEstimateRange.min} hours if left blank`
+                                  : "Calculated from net weight"}
                         </p>
                     </div>
                     <div className="rounded-xl border border-[#E7EDF5] bg-[#F8FAFC] p-4">
@@ -982,7 +1045,7 @@ const AddProduct = () => {
             <div className="flex flex-col-reverse justify-end gap-3 sm:flex-row">
                 <button
                     type="button"
-                    onClick={() => navigate(ROUTES.ADMIN_PRODUCTS)}
+                    onClick={handleCancel}
                     disabled={isSaving}
                     className="rounded-lg border border-[#CBD5E1] bg-white px-5 py-2.5 text-sm font-semibold text-[#475569] transition hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
                 >

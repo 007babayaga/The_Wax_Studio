@@ -130,12 +130,21 @@ const Sidebar = ({
                 }`}
             >
                 <div className="flex min-w-0 items-center gap-3">
-                    <div
-                        aria-label={`${user?.name || "Admin"} initials`}
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#947359] text-sm font-semibold text-white"
-                    >
-                        {getInitials(user?.name)}
-                    </div>
+                    {user?.profilePicture ? (
+                        <img
+                            src={user.profilePicture}
+                            alt={`${user?.name || "Admin"} profile photo`}
+                            referrerPolicy="no-referrer"
+                            className="h-10 w-10 shrink-0 rounded-full object-cover"
+                        />
+                    ) : (
+                        <div
+                            aria-label={`${user?.name || "Admin"} initials`}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#947359] text-sm font-semibold text-white"
+                        >
+                            {getInitials(user?.name)}
+                        </div>
+                    )}
                     {!collapsed && (
                         <div className="min-w-0 text-sm leading-4">
                             <p className="truncate font-semibold text-[#1F2937]">

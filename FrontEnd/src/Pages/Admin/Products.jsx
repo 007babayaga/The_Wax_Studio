@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "react-toastify";
 
 import { getErrorMessage } from "../../Services/Api.js";
@@ -31,6 +31,27 @@ import nextPageIcon from "../../assets/admin/28913.svg";
 
 const LOW_STOCK_THRESHOLD = 10;
 const PRODUCTS_PER_PAGE = 8;
+const PAGE_PARAM = "page";
+
+// Page numbers to show, with "…" gaps: 1 … 4 5 6 … 25.
+const getPageItems = (currentPage, pageCount) => {
+    if (pageCount <= 7) {
+        return Array.from({ length: pageCount }, (_, index) => index + 1);
+    }
+
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(pageCount - 1, currentPage + 1);
+    const items = [1];
+
+    if (start > 2) items.push("start-gap");
+    for (let pageNumber = start; pageNumber <= end; pageNumber += 1) {
+        items.push(pageNumber);
+    }
+    if (end < pageCount - 1) items.push("end-gap");
+    items.push(pageCount);
+
+    return items;
+};
 
 // One rule for stock everywhere, so the cards and the table never disagree
 // (a missing stock value counts as 0 in both).
@@ -80,8 +101,27 @@ const Product = () => {
 
     // The Navbar writes the search term into the URL (?search=...); this page
     // reads it and makes the API call.
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const search = (searchParams.get("search") ?? "").trim();
+
+    // The page lives in the URL (?page=), so Back from a product returns to
+    // it, and the Navbar dropping ?page= on a new search resets it to 1.
+    const page = Math.max(
+        1,
+        Number.parseInt(searchParams.get(PAGE_PARAM) ?? "", 10) || 1
+    );
+    const setPage = (pageNumber) => {
+        setSearchParams(
+            (current) => {
+                const next = new URLSearchParams(current);
+                if (pageNumber <= 1) next.delete(PAGE_PARAM);
+                else next.set(PAGE_PARAM, String(pageNumber));
+                return next;
+            },
+            { replace: true }
+        );
+    };
+    const tableSectionRef = useRef(null);
 
     // Full inventory: feeds the stat cards, so they never change with a search.
     const [products, setProducts] = useState([]);
@@ -97,7 +137,6 @@ const Product = () => {
     const [tableSearch, setTableSearch] = useState("");
     const [categoryFilter, setCategoryFilter] = useState("");
     const [statusFilter, setStatusFilter] = useState("");
-    const [page, setPage] = useState(1);
     const [deactivatingProductId, setDeactivatingProductId] = useState("");
     const [productPendingDelete, setProductPendingDelete] = useState(null);
     const deleteDialogRef = useRef(null);
@@ -304,6 +343,19 @@ const Product = () => {
         currentPage * PRODUCTS_PER_PAGE
     );
 
+    // Always step from the page on screen, not the raw URL value, which can
+    // be past the last page after a delete or a filter change.
+    const goToPage = (pageNumber) => {
+        const target = Math.min(Math.max(1, pageNumber), pageCount);
+        if (target === currentPage) return;
+
+        setPage(target);
+        tableSectionRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+        });
+    };
+
     const clearTableFilters = () => {
         setTableSearch("");
         setCategoryFilter("");
@@ -420,7 +472,10 @@ const Product = () => {
                     />
                 </section>
 
-                <section className="overflow-hidden rounded-xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]">
+                <section
+                    ref={tableSectionRef}
+                    className="scroll-mt-4 overflow-hidden rounded-xl bg-white p-5 shadow-[0_1px_3px_rgba(0,0,0,0.2)]"
+                >
                     <div className="mb-10 flex flex-wrap items-center justify-between gap-3">
                         <label className="flex min-h-11 w-full max-w-[448px] flex-1 items-center gap-2.5 rounded-xl bg-[#F2F2F7] px-3.5 py-2.5">
                             <img
@@ -573,7 +628,12 @@ const Product = () => {
                                         return (
                                             <tr
                                                 key={product._id ?? `${product.name}-${product.sku}`}
-                                                className="text-xs"
+                                                onClick={() =>
+                                                    navigate(
+                                                        `${ROUTES.ADMIN_PRODUCTS}/${product._id}`
+                                                    )
+                                                }
+                                                className="cursor-pointer text-xs transition hover:bg-[#F8FAFC]"
                                             >
                                                 <td className="px-3 py-1">
                                                     <img
@@ -588,7 +648,16 @@ const Product = () => {
                                                     />
                                                 </td>
                                                 <td className="px-3 py-3 font-semibold text-[#0F172A]">
-                                                    {product.name}
+                                                    {/* Real link so keyboard users and Ctrl+click work too. */}
+                                                    <Link
+                                                        to={`${ROUTES.ADMIN_PRODUCTS}/${product._id}`}
+                                                        onClick={(event) =>
+                                                            event.stopPropagation()
+                                                        }
+                                                        className="hover:underline"
+                                                    >
+                                                        {product.name}
+                                                    </Link>
                                                 </td>
                                                 <td className="px-3 py-3 text-[#64748B]">
                                                     {product.category || "—"}
@@ -616,7 +685,12 @@ const Product = () => {
                                                               : "In Stock"}
                                                     </span>
                                                 </td>
-                                                <td className="px-3 py-3">
+                                                <td
+                                                    className="px-3 py-3 cursor-default"
+                                                    onClick={(event) =>
+                                                        event.stopPropagation()
+                                                    }
+                                                >
                                                     <div className="flex items-center justify-end gap-1.5">
                                                         <button
                                                             type="button"
@@ -670,23 +744,21 @@ const Product = () => {
                     {!tableLoading && !tableError && (
                         <footer className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#F1F5F9] pt-3">
                             <p className="text-xs text-[#4B5563]">
-                                Showing {firstItemIndex}–{lastItemIndex} of{" "}
-                                {filteredProducts.length} products
+                                {filteredProducts.length === 0
+                                    ? "No products to show"
+                                    : `Showing ${firstItemIndex}–${lastItemIndex} of ${filteredProducts.length} products`}
                             </p>
+                            {pageCount > 1 && (
                             <nav
                                 aria-label="Inventory pages"
-                                className="flex items-center gap-1"
+                                className="flex flex-wrap items-center gap-1"
                             >
                                 <button
                                     type="button"
-                                    onClick={() =>
-                                        setPage((current) =>
-                                            Math.max(1, current - 1)
-                                        )
-                                    }
+                                    onClick={() => goToPage(currentPage - 1)}
                                     disabled={currentPage === 1}
                                     aria-label="Previous page"
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg disabled:opacity-40"
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     <img
                                         src={previousPageIcon}
@@ -694,39 +766,43 @@ const Product = () => {
                                         aria-hidden="true"
                                     />
                                 </button>
-                                {Array.from(
-                                    { length: pageCount },
-                                    (_, index) => index + 1
-                                ).map((pageNumber) => (
-                                    <button
-                                        key={pageNumber}
-                                        type="button"
-                                        onClick={() => setPage(pageNumber)}
-                                        aria-label={`Page ${pageNumber}`}
-                                        aria-current={
-                                            pageNumber === currentPage
-                                                ? "page"
-                                                : undefined
-                                        }
-                                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs ${
-                                            pageNumber === currentPage
-                                                ? "bg-black font-semibold text-white"
-                                                : "text-[#94A3B8] hover:bg-[#F8FAFC]"
-                                        }`}
-                                    >
-                                        {pageNumber}
-                                    </button>
-                                ))}
+                                {getPageItems(currentPage, pageCount).map(
+                                    (item) =>
+                                        typeof item === "string" ? (
+                                            <span
+                                                key={item}
+                                                aria-hidden="true"
+                                                className="flex h-8 w-6 items-center justify-center text-xs text-[#94A3B8]"
+                                            >
+                                                …
+                                            </span>
+                                        ) : (
+                                            <button
+                                                key={item}
+                                                type="button"
+                                                onClick={() => goToPage(item)}
+                                                aria-label={`Page ${item}`}
+                                                aria-current={
+                                                    item === currentPage
+                                                        ? "page"
+                                                        : undefined
+                                                }
+                                                className={`flex h-8 min-w-8 cursor-pointer items-center justify-center rounded-lg px-1 text-xs ${
+                                                    item === currentPage
+                                                        ? "bg-black font-semibold text-white"
+                                                        : "text-[#94A3B8] hover:bg-[#F8FAFC]"
+                                                }`}
+                                            >
+                                                {item}
+                                            </button>
+                                        )
+                                )}
                                 <button
                                     type="button"
-                                    onClick={() =>
-                                        setPage((current) =>
-                                            Math.min(pageCount, current + 1)
-                                        )
-                                    }
+                                    onClick={() => goToPage(currentPage + 1)}
                                     disabled={currentPage === pageCount}
                                     aria-label="Next page"
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg disabled:opacity-40"
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     <img
                                         src={nextPageIcon}
@@ -735,6 +811,7 @@ const Product = () => {
                                     />
                                 </button>
                             </nav>
+                            )}
                         </footer>
                     )}
                 </section>

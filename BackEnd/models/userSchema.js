@@ -55,6 +55,21 @@ const userSchema = new Schema({
         type: String,
         default: ""
     },
+    // Cloudinary public_id of an uploaded photo, so the old one can be deleted
+    // on replace. Empty for Google pictures, which aren't stored on Cloudinary.
+    profilePicturePublicId: {
+        type: String,
+        default: ""
+    },
+    phone: {
+        countryCode: { type: String, default: "+91" },
+        number: { type: String, default: "" }
+    },
+    notificationPreferences: {
+        email: { type: Boolean, default: true },
+        push: { type: Boolean, default: true },
+        sms: { type: Boolean, default: false }
+    },
     authProvider: {
         type: String,
         enum: ['local', 'google'],

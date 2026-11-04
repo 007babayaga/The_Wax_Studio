@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { CiSearch } from "react-icons/ci";
 import { IoMdNotificationsOutline } from "react-icons/io";
 import { FiSettings } from "react-icons/fi";
@@ -137,23 +137,40 @@ const Navbar = () => {
                 >
                     <IoMdNotificationsOutline aria-hidden="true" />
                 </button>
-                <button
-                    type="button"
+                <Link
+                    to={ROUTES.ADMIN_SETTINGS}
                     aria-label="Settings"
+                    title="Settings"
                     className={ICON_BUTTON_CLASS}
                 >
                     <FiSettings aria-hidden="true" />
-                </button>
-                <div
-                    title={user?.name}
-                    role="img"
+                </Link>
+                <Link
+                    to={ROUTES.ADMIN_SETTINGS}
+                    title={user?.name ? `${user.name} · Profile settings` : "Profile settings"}
                     aria-label={
-                        user?.name ? `Signed in as ${user.name}` : "Account"
+                        user?.name
+                            ? `Signed in as ${user.name}. Open profile settings`
+                            : "Open profile settings"
                     }
-                    className="flex h-8 w-8 shrink-0 select-none items-center justify-center rounded-full bg-[#957351] text-xs font-semibold tracking-wide text-white sm:h-9 sm:w-9"
+                    className="shrink-0 rounded-full transition hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#957358]"
                 >
-                    {getInitials(user?.name)}
-                </div>
+                    {user?.profilePicture ? (
+                        <img
+                            src={user.profilePicture}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            className="h-8 w-8 rounded-full object-cover sm:h-9 sm:w-9"
+                        />
+                    ) : (
+                        <span
+                            aria-hidden="true"
+                            className="flex h-8 w-8 select-none items-center justify-center rounded-full bg-[#957351] text-xs font-semibold tracking-wide text-white sm:h-9 sm:w-9"
+                        >
+                            {getInitials(user?.name)}
+                        </span>
+                    )}
+                </Link>
             </div>
         </div>
     );

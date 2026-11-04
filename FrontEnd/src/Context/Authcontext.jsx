@@ -66,6 +66,11 @@ const AuthProvider = ({ children }) => {
         setUser(authenticatedUser);
     }, []);
 
+    // Merge changed fields (e.g. a new profilePicture) into the signed-in user.
+    const updateUser = useCallback((fields) => {
+        setUser((current) => (current ? { ...current, ...fields } : current));
+    }, []);
+
     const logout = useCallback(async () => {
         try {
             await logoutUser();
@@ -75,9 +80,13 @@ const AuthProvider = ({ children }) => {
         }
     }, []);
 
+    // Drops the signed-in user without calling the API, for when the server
+    // already ended the session (e.g. the account was deleted).
+    const clearSession = useCallback(() => setUser(null), []);
+
     const value = useMemo(
-        () => ({ user, initializing, login, logout }),
-        [user, initializing, login, logout]
+        () => ({ user, initializing, login, logout, updateUser, clearSession }),
+        [user, initializing, login, logout, updateUser, clearSession]
     );
 
     return (

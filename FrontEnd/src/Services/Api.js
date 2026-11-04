@@ -44,6 +44,7 @@ const send = async (
         body,
         headers = {},
         signal: externalSignal,
+        timeout = TIMEOUT_MS,
     } = {}
 ) => {
     const controller = new AbortController();
@@ -61,7 +62,7 @@ const send = async (
 
     const timer = setTimeout(() => {
         controller.abort();
-    }, TIMEOUT_MS);
+    }, timeout);
 
     const hasBody = body !== undefined;
     const isFormData = body instanceof FormData;
@@ -175,6 +176,7 @@ const refreshSession = () => {
  *  - skipRefresh: true  -> a 401 is a normal answer (login, signup, OTP,
  *                          logout), so never try to refresh and retry.
  *  - signal             -> AbortSignal to cancel the request.
+ *  - timeout            -> ms before giving up (default 15s); raise for uploads.
  */
 const request = async (path, options = {}) => {
     const { skipRefresh = false, ...sendOptions } = options;

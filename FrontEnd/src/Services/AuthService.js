@@ -40,4 +40,20 @@ const getCurrentUser = async ({ signal } = {}) => {
 const logoutUser = () =>
     api.post("/auth/userLogout", undefined, { skipRefresh: true });
 
-export { loginUser, sendEmailOtp, verifyEmailOtp, signUpUser, forgotPassword, resetPassword, googleLogin, getCurrentUser, logoutUser };
+// profile photo (returns { profilePicture: "<cloudinary https url>" })
+const uploadProfilePicture = (file, options = {}) => {
+    const formData = new FormData();
+    formData.append("profilePicture", file);
+    return api.put("/auth/profilePicture", formData, options);
+};
+
+// profile details (send only what changed: name, phone, notificationPreferences)
+const updateProfile = (fields, options = {}) =>
+    api.put("/auth/profile", fields, options);
+
+// permanent account deletion: { password } for email accounts,
+// { confirmation: "DELETE" } for Google accounts
+const deleteAccount = (body, options = {}) =>
+    api.post("/auth/deleteAccount", body, options);
+
+export { loginUser, sendEmailOtp, verifyEmailOtp, signUpUser, forgotPassword, resetPassword, googleLogin, getCurrentUser, logoutUser, uploadProfilePicture, updateProfile, deleteAccount };
