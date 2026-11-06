@@ -13,6 +13,7 @@ import {
 import { ApiError, getErrorMessage } from "../../Services/Api.js";
 import { forgotPassword, resetPassword } from "../../Services/AuthService.js";
 import { ROUTES } from "../../constants/routes.js";
+import { OTP_LENGTH, OTP_REGEX, sanitizeOtp } from "../../constants/otp.js";
 
 const RESEND_COOLDOWN_SECONDS = 120; // keep in sync with the backend OTP cooldown
 
@@ -68,7 +69,7 @@ const ResetPassword = () => {
         const { name, value } = event.target;
         setForm((previous) => ({
             ...previous,
-            [name]: name === "otp" ? value.replace(/\D/g, "") : value,
+            [name]: name === "otp" ? sanitizeOtp(value) : value,
         }));
     };
 
@@ -97,8 +98,8 @@ const ResetPassword = () => {
         event.preventDefault();
         if (loading) return;
 
-        if (!/^\d{5}$/.test(form.otp)) {
-            toast.error("Please enter the 5-digit OTP");
+        if (!OTP_REGEX.test(form.otp)) {
+            toast.error(`Please enter the ${OTP_LENGTH}-digit OTP`);
             return;
         }
 
@@ -167,10 +168,11 @@ const ResetPassword = () => {
                             type="text"
                             inputMode="numeric"
                             autoComplete="one-time-code"
-                            maxLength={5}
+                            maxLength={OTP_LENGTH}
+                            pattern={`\\d{${OTP_LENGTH}}`}
                             value={form.otp}
                             onChange={handleChange}
-                            placeholder="Enter OTP"
+                            placeholder={`Enter ${OTP_LENGTH}-digit OTP`}
                             className={INPUT_CLASS}
                             required
                         />

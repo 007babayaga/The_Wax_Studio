@@ -7,13 +7,14 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const crypto = require('crypto');
 
-//const ACCESS_COOKIE_NAME = 'access_token';
-//const REFRESH_COOKIE_NAME = 'refresh_token';
+// How long after verifying the email OTP the user has to finish signing up.
+// Keep in sync with the verified-OTP handling in Otp/controller.js.
+const SIGNUP_VERIFIED_WINDOW_MS = 30 * 60 * 1000;
 
 const userSignUpController = async (req, res) => {
     try {
         console.log("--------------Inside userSignUpController----------------");
-        const { name, dateOfBirth, email, password } = req.body;
+        const { name, dateOfBirth, email, password } = req.body || {};
         const normalizedEmail = String(email || '').trim().toLowerCase();
 
         if (!name || !normalizedEmail || !password) {
@@ -31,6 +32,20 @@ const userSignUpController = async (req, res) => {
             });
         }
 
+        // The email must have been proven with an OTP (POST /otp/verifyEmailOtp)
+        // shortly before; otherwise anyone could register any address.
+        const verifiedOtp = await emailOtpModel.findOne({
+            email: normalizedEmail,
+            isVerified: true,
+            verifiedAt: { $gte: new Date(Date.now() - SIGNUP_VERIFIED_WINDOW_MS) }
+        });
+        if (!verifiedOtp) {
+            return res.status(403).json({
+                isSuccess: false,
+                message: "Please verify your email with the OTP before signing up"
+            });
+        }
+
         await userModel.create({
             name: String(name).trim(),
             dateOfBirth,
@@ -38,6 +53,7 @@ const userSignUpController = async (req, res) => {
             password,
             isVerified: true
         });
+        await emailOtpModel.deleteMany({ email: normalizedEmail });
 
         return res.status(200).json({
             isSuccess: true,
@@ -56,6 +72,8 @@ const userSignUpController = async (req, res) => {
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 
+// `tv` (tokenVersion) is checked on every request by the token middleware, so
+// bumping it (password reset) kills access tokens that were already issued.
 const createAccessToken = (user) => jwt.sign(
     { id: user._id.toString(), role: user.role || 'user', tv: user.tokenVersion || 0 },
     process.env.JWT_SECRET,
@@ -70,26 +88,66 @@ const createRefreshToken = (user, jti) => jwt.sign(
 
 const isProd = process.env.NODE_ENV === "production";
 
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Oldest sessions (devices) are dropped beyond this many.
+const MAX_SESSIONS_PER_USER = 10;
+
+// One set of attributes for setting AND clearing. Browsers ignore a clear
+// whose SameSite/Secure don't match the cookie, so logout would silently
+// fail in production (cross-site, SameSite=None) if these drifted apart.
+const baseCookieOptions = () => ({
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'None' : 'Lax',
+    path: '/'
+});
+
 const setAuthCookies = (res, accessToken, refreshToken) => {
     res.cookie('access_token', accessToken, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? 'None' : 'Lax',
-        path: '/',
+        ...baseCookieOptions(),
         maxAge: 1000 * 60 * 60 // 1 hour
     });
     res.cookie('refresh_token', refreshToken, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? 'None' : 'Lax',
-        path: '/',
-        maxAge: 1000 * 60 * 60 * 24 * 30 // 30 days
+        ...baseCookieOptions(),
+        maxAge: SESSION_TTL_MS
     });
+};
+
+const clearAuthCookies = (res) => {
+    res.clearCookie('access_token', baseCookieOptions());
+    res.clearCookie('refresh_token', baseCookieOptions());
+};
+
+// Stores a new login session, dropping expired ones and keeping only the
+// newest MAX_SESSIONS_PER_USER so the array can't grow forever.
+const addSession = async (userId, jti, req) => {
+    const now = new Date();
+    await userModel.updateOne(
+        { _id: userId },
+        { $pull: { sessions: { expiresAt: { $lt: now } } } }
+    );
+    await userModel.updateOne(
+        { _id: userId },
+        {
+            $push: {
+                sessions: {
+                    $each: [{
+                        jti,
+                        createdAt: now,
+                        expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+                        userAgent: req.get('User-Agent') || '',
+                        ip: req.ip || req.socket?.remoteAddress || ''
+                    }],
+                    $slice: -MAX_SESSIONS_PER_USER
+                }
+            }
+        }
+    );
 };
 
 const googleAuthController = async (req, res) => {
     try {
-        const { idToken } = req.body;
+        const { idToken } = req.body || {};
         if (!idToken || typeof idToken !== 'string') {
             res.status(400).json(
                 {
@@ -99,15 +157,23 @@ const googleAuthController = async (req, res) => {
             return
         }
 
-        const ticket = await client.verifyIdToken({
-            idToken,
-            audience: process.env.GOOGLE_CLIENT_ID
-        });
-
-        const payload = ticket.getPayload();
+        // A forged, expired or wrong-audience token makes verifyIdToken throw;
+        // that's the client's fault, so 401 rather than 500.
+        let payload;
+        try {
+            const ticket = await client.verifyIdToken({
+                idToken,
+                audience: process.env.GOOGLE_CLIENT_ID
+            });
+            payload = ticket.getPayload();
+        } catch (verifyError) {
+            console.log("---Google token rejected---", verifyError.message);
+            return res.status(401).json({ isSuccess: false, message: 'Invalid Google token' });
+        }
         if (!payload) return res.status(401).json({ isSuccess: false, message: 'Invalid Google token' });
 
-        const { email, name, sub: googleId, picture, email_verified, iss, exp } = payload;
+        const { name, sub: googleId, picture, email_verified, iss, exp } = payload;
+        const email = String(payload.email || '').trim().toLowerCase();
 
         if (!email || !email_verified) return res.status(401).json({ isSuccess: false, message: 'Google account not verified' });
         if (!['accounts.google.com', 'https://accounts.google.com'].includes(iss)) return res.status(401).json({ isSuccess: false, message: 'Invalid token issuer' });
@@ -133,29 +199,12 @@ const googleAuthController = async (req, res) => {
             { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
         );
 
-        // Generate jti
-        const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12;
-        const seed = `${user._id}|${Date.now()}|${Math.random()}`;
-        const jti = await bcrypt.hash(seed, saltRounds);
+        const jti = crypto.randomBytes(16).toString('hex');
 
         const accessToken = createAccessToken(user);
         const refreshToken = createRefreshToken(user, jti);
 
-
-        await userModel.updateOne(
-            { _id: user._id },
-            {
-                $push: {
-                    sessions: {
-                        jti,
-                        createdAt: new Date(),
-                        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                        userAgent: req.get('User-Agent') || '',
-                        ip: req.ip || req.connection?.remoteAddress || ''
-                    }
-                }
-            }
-        );
+        await addSession(user._id, jti, req);
 
         setAuthCookies(res, accessToken, refreshToken);
 
@@ -182,7 +231,7 @@ const googleAuthController = async (req, res) => {
 const userLoginController = async (req, res) => {
     try {
         console.log("--------------Inside userLoginController----------------")
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
         const normalizedEmail = String(email || "").trim().toLowerCase();
 
         if (!normalizedEmail || !password) {
@@ -215,54 +264,14 @@ const userLoginController = async (req, res) => {
             });
         }
 
-        // Generate jti for refresh token
         const jti = crypto.randomBytes(16).toString('hex');
 
-        // Create tokens
-        const accessToken = jwt.sign(
-            { id: user._id, role: user.role, tv: user.tokenVersion },
-            process.env.JWT_SECRET,
-            { expiresIn: "1h" }
-        );
-        const refreshToken = jwt.sign(
-            { id: user._id, jti },
-            process.env.REFRESH_TOKEN_SECRET,
-            { expiresIn: "30d" }
-        );
+        const accessToken = createAccessToken(user);
+        const refreshToken = createRefreshToken(user, jti);
 
-        // Save session
-        await userModel.updateOne(
-            { _id: user._id },
-            {
-                $push: {
-                    sessions: {
-                        jti,
-                        createdAt: new Date(),
-                        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                        userAgent: req.get('User-Agent') || '',
-                        ip: req.ip || req.connection?.remoteAddress || ''
-                    }
-                }
-            }
-        );
+        await addSession(user._id, jti, req);
 
-        const isProd = process.env.NODE_ENV === "production"; 
-
-        // Set cookies
-        res.cookie('access_token', accessToken, {
-            httpOnly: true,
-            secure: isProd,
-            sameSite: isProd ? "None" : "Lax",
-            path: "/",
-            maxAge: 1000 * 60 * 60 // 1h
-        });
-        res.cookie('refresh_token', refreshToken, {
-            httpOnly: true,
-            secure: isProd,
-            sameSite: isProd ? "None" : "Lax",
-            path: "/",
-            maxAge: 1000 * 60 * 60 * 24 * 30 // 30d
-        });
+        setAuthCookies(res, accessToken, refreshToken);
 
         return res.status(200).json({
             isSuccess: true,
@@ -288,34 +297,27 @@ const userLoginController = async (req, res) => {
     }
 };
 
+// Works from the refresh token alone, so logging out still ends the session
+// after the 1-hour access token has expired. Always clears the cookies.
 const userLogoutController = async (req, res) => {
     try {
         console.log("--------------Inside userLogoutController----------------")
-        const userId = req.user?.id || req.user?._id;
-        const jti = req.tokenJti;
+        const refreshToken = req.cookies?.['refresh_token'];
 
-        if (!userId) {
-            return res.status(401).json({
-                isSuccess: false,
-                message: "Authentication required"
-            });
+        if (refreshToken) {
+            try {
+                // Expired refresh tokens still identify the session to remove.
+                const { id, jti } = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET, { ignoreExpiration: true });
+                if (id && jti) {
+                    await userModel.updateOne({ _id: id }, { $pull: { sessions: { jti } } });
+                }
+            } catch (tokenError) {
+                // A tampered token has no session to end; just clear cookies.
+                console.log("---Logout with invalid refresh token---", tokenError.message);
+            }
         }
 
-        const user = await userModel.findById(userId);
-        if (!user) {
-            return res.status(404).json({
-                isSuccess: false,
-                message: "User not found"
-            });
-        }
-
-        if (jti) {
-            user.sessions = (user.sessions || []).filter(session => session.jti !== jti);
-            await user.save();
-        }
-
-        res.clearCookie('access_token', { path: "/" });
-        res.clearCookie('refresh_token', { path: "/" });
+        clearAuthCookies(res);
 
         return res.status(200).json({
             isSuccess: true,
@@ -324,6 +326,7 @@ const userLogoutController = async (req, res) => {
     }
     catch (err) {
         console.log("-----------Error in userLogoutController------", err.message);
+        clearAuthCookies(res);
         return res.status(500).json({
             isSuccess: false,
             message: "Internal Server error"
@@ -374,7 +377,7 @@ const forgotPasswordController = async (req, res) => {
             lastSentAt: new Date()
         });
 
-        await sendOtp(email, otp);
+        await sendOtp(email, otp, { purpose: "reset" });
 
         return res.status(200).json(genericResponse);
     }
@@ -443,8 +446,7 @@ const resetPasswordController = async (req, res) => {
 
         await emailOtpModel.deleteOne({ _id: otpDoc._id });
 
-        res.clearCookie('access_token', { path: "/" });
-        res.clearCookie('refresh_token', { path: "/" });
+        clearAuthCookies(res);
 
         return res.status(200).json({
             isSuccess: true,
@@ -735,8 +737,7 @@ const deleteAccountController = async (req, res) => {
             );
         }
 
-        res.clearCookie('access_token', { path: "/" });
-        res.clearCookie('refresh_token', { path: "/" });
+        clearAuthCookies(res);
 
         return res.status(200).json({
             isSuccess: true,
@@ -757,9 +758,7 @@ const refreshTokenController = async (req, res) => {
     try {
         console.log("--------------Inside refreshTokenController----------------")
 
-        const isProd = process.env.NODE_ENV === "production";
-
-        const token = req.cookies['refresh_token'];
+        const token = req.cookies?.['refresh_token'];
         if (!token) {
             return res.status(401).json({ isSuccess: false, message: 'No refresh token provided' });
         }
@@ -773,7 +772,8 @@ const refreshTokenController = async (req, res) => {
 
         const { id, jti } = decoded;
         const user = await userModel.findById(id);
-        if (!user) return res.status(404).json({ isSuccess: false, message: 'User not found' });
+        // 401 (not 404) so the frontend treats a deleted account as signed out.
+        if (!user) return res.status(401).json({ isSuccess: false, message: 'User not found' });
 
         const session = user.sessions.find(s => s.jti === jti);
         if (!session) return res.status(401).json({ isSuccess: false, message: 'Session not found' });
@@ -781,40 +781,28 @@ const refreshTokenController = async (req, res) => {
             return res.status(401).json({ isSuccess: false, message: 'Session expired' });
         }
 
-        const accessToken = jwt.sign(
-            { id: user._id, role: user.role, tv: user.tokenVersion },
-            process.env.JWT_SECRET,
-            { expiresIn: '1h' }
-        );
+        const accessToken = createAccessToken(user);
 
-        const newJti = require('crypto').randomBytes(16).toString('hex');
-        const newRefreshToken = jwt.sign({ id: user._id, jti: newJti }, process.env.REFRESH_TOKEN_SECRET, { expiresIn: '30d' });
+        const newJti = crypto.randomBytes(16).toString('hex');
+        const newRefreshToken = createRefreshToken(user, newJti);
 
-        await userModel.updateOne(
+        // Matching on the old jti makes rotation single-use: if two requests
+        // race with the same refresh token, only one of them wins.
+        const rotation = await userModel.updateOne(
             { _id: user._id, 'sessions.jti': jti },
             {
                 $set: {
                     'sessions.$.jti': newJti,
                     'sessions.$.createdAt': new Date(),
-                    'sessions.$.expiresAt': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                    'sessions.$.expiresAt': new Date(Date.now() + SESSION_TTL_MS)
                 }
             }
         );
+        if (rotation.modifiedCount === 0) {
+            return res.status(401).json({ isSuccess: false, message: 'Session not found' });
+        }
 
-        res.cookie('access_token', accessToken, {
-            httpOnly: true,
-            secure: isProd,
-            sameSite: isProd ? 'None' : 'Lax',
-            path: '/',
-            maxAge: 1000 * 60 * 60
-        });
-        res.cookie('refresh_token', newRefreshToken, {
-            httpOnly: true,
-            secure: isProd,
-            sameSite: isProd ? 'None' : 'Lax',
-            path: '/',
-            maxAge: 1000 * 60 * 60 * 24 * 30
-        });
+        setAuthCookies(res, accessToken, newRefreshToken);
 
         return res.status(200).json({ isSuccess: true, message: 'Token refreshed successfully' });
 

@@ -33,7 +33,8 @@ const handleProfilePictureUpload = (req, res, next) => {
 authRouter.post('/signUp', validateUserSignUp, userSignUpController);
 authRouter.post('/google',googleAuthController);
 authRouter.post('/userLogin',validateUserLogin,userLoginController);
-authRouter.post('/userLogout',tokenVerificaionMiddleware,userLogoutController);
+// No access-token check: logout must work after the access token expires.
+authRouter.post('/userLogout',userLogoutController);
 authRouter.post('/forgotPassword',validateForgotPassword,forgotPasswordController)
 authRouter.post('/resetPassword',validateResetPassword,resetPasswordController)
 authRouter.get('/userStatus',tokenVerificaionMiddleware,authStatusController);

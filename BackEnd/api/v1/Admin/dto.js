@@ -23,6 +23,14 @@ const isAuthenticated = async (req, res, next) => {
             });
         }
 
+        // A password reset bumps tokenVersion; older tokens must stop working.
+        if ((user.tokenVersion || 0) !== (decoded.tv || 0)) {
+            return res.status(401).json({
+                isSuccess: false,
+                message: "Session is no longer valid",
+            });
+        }
+
         req.user = user;
         return next();
     } catch (err) {

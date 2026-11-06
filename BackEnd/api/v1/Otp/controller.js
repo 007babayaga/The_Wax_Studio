@@ -7,6 +7,9 @@ const generateOtp = () => {
   return crypto.randomInt(10000, 100000).toString(); // 5-digit OTP
 };
 
+// A 5-digit code has only 100,000 values; lock it after a few wrong guesses.
+const MAX_VERIFY_ATTEMPTS = 5;
+
 const sendOtpController = async(req,res)=>{
     try{
         console.log("-------Inside sendOtpController--------------")
@@ -160,37 +163,51 @@ const verifyEmailOtpController = async(req,res)=>{
                 isSuccess: false,
                 message: "No OTP found for this email"
             })
-            return 
+            return
+        }
+
+        if (otpDoc.isVerified) {
+            return res.status(200).json({
+                isSuccess: true,
+                message: "Email already verified"
+            })
         }
 
         const now = new Date()
         if (now > new Date(otpDoc.otpExpiryTime)) {
-            emailOtpModel.deleteOne({ _id: otpDoc._id })
+            await emailOtpModel.deleteOne({ _id: otpDoc._id })
             res.status(400).json({
                 isSuccess: false,
                 message: "OTP has expired"
             })
-            return 
+            return
         }
 
         const isOtpMatched = await otpDoc.compareOtp(otp)
 
         if (!isOtpMatched) {
+            const attempts = (otpDoc.attempts || 0) + 1
+            if (attempts >= MAX_VERIFY_ATTEMPTS) {
+                await emailOtpModel.deleteOne({ _id: otpDoc._id })
+                return res.status(429).json({
+                    isSuccess: false,
+                    message: "Too many invalid attempts. Please request a new OTP"
+                })
+            }
+            await emailOtpModel.updateOne({ _id: otpDoc._id }, { $set: { attempts } })
             res.status(400).json({
                 isSuccess: false,
                 message: "Invalid OTP"
             })
-            return 
+            return
         }
 
-        
-
-        otpDoc.isVerified = true
-        otpDoc.verifiedAt = now
-        otpDoc.attempts = 0
-        await otpDoc.save()
-
-        await emailOtpModel.deleteOne({ _id: otpDoc._id })
+        // Kept (not deleted) as proof of ownership: POST /auth/signUp requires
+        // a verified record and deletes it once the account is created.
+        await emailOtpModel.updateOne(
+            { _id: otpDoc._id },
+            { $set: { isVerified: true, verifiedAt: now, attempts: 0 } }
+        )
 
         return res.status(200).json({
             isSuccess: true,
