@@ -1,35 +1,36 @@
 const jwt = require("jsonwebtoken");
+const { userModel } = require("../models/userSchema");
 
-const tokenVerificaionMiddleware = (req, res, next) => {
-    const accessToken = req.cookies['access_token'];   
-    const refreshToken = req.cookies['refresh_token'];  
-    
+// Verifies the access token AND that it is still current: the user must
+// exist and its tokenVersion must match the token's `tv`. A password reset
+// bumps tokenVersion, so access tokens issued before it stop working at once
+// instead of staying valid for up to an hour.
+const tokenVerificaionMiddleware = async (req, res, next) => {
+    const accessToken = req.cookies?.['access_token'];
+
     if (!accessToken) {
-        return res.status(401).json({ message: "Please login to continue" });
+        return res.status(401).json({ isSuccess: false, message: "Please login to continue" });
+    }
+
+    let decoded;
+    try {
+        decoded = jwt.verify(accessToken, process.env.JWT_SECRET);
+    } catch (err) {
+        return res.status(401).json({ isSuccess: false, message: 'Invalid or expired access token' });
     }
 
     try {
-        // Verify access token
-        const decodedAccess = jwt.verify(accessToken, process.env.JWT_SECRET);
-        req.user = decodedAccess; // { id, role, tv }
-
-        // Decode refresh token (not mandatory for every request, but needed for logout)
-        if (refreshToken) {
-            try {
-                const decodedRefresh = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET);
-                req.tokenJti = decodedRefresh.jti; // attach jti to request
-            } catch (err) {
-                // If refresh token is invalid, we can still proceed with access token
-                console.warn("Invalid refresh token during middleware:", err.message);
-            }
+        const user = await userModel.findById(decoded.id).select('tokenVersion role').lean();
+        if (!user || (user.tokenVersion || 0) !== (decoded.tv || 0)) {
+            return res.status(401).json({ isSuccess: false, message: 'Session is no longer valid' });
         }
 
-        next();
+        // Role from the database, not the token, so a role change applies at once.
+        req.user = { ...decoded, role: user.role };
+        return next();
     } catch (err) {
-        res.status(401).json({
-            message: 'Invalid or expired access token'
-        })
-        return 
+        console.log("-----------Error in tokenVerificaionMiddleware------", err.message);
+        return res.status(500).json({ isSuccess: false, message: "Internal Server error" });
     }
 };
 

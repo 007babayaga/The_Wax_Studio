@@ -20,6 +20,7 @@ import {
 
 import { ApiError, getErrorMessage } from "../../Services/Api.js";
 import { getPostLoginRoute, ROUTES } from "../../constants/routes.js";
+import { OTP_LENGTH, OTP_REGEX, sanitizeOtp } from "../../constants/otp.js";
 
 const MIN_DATE_OF_BIRTH = "1900-01-01";
 const RESEND_COOLDOWN_SECONDS = 120; // keep in sync with the backend OTP cooldown
@@ -231,8 +232,8 @@ const SignUp = () => {
 
         const trimmedOtp = otp.trim();
 
-        if (!trimmedOtp) {
-            toast.error("Please enter OTP");
+        if (!OTP_REGEX.test(trimmedOtp)) {
+            toast.error(`Please enter the ${OTP_LENGTH}-digit OTP`);
             return;
         }
 
@@ -424,11 +425,13 @@ const SignUp = () => {
                                 type="text"
                                 inputMode="numeric"
                                 autoComplete="one-time-code"
+                                maxLength={OTP_LENGTH}
+                                pattern={`\\d{${OTP_LENGTH}}`}
                                 value={otp}
                                 onChange={(e) =>
-                                    setOtp(e.target.value.replace(/\D/g, ""))
+                                    setOtp(sanitizeOtp(e.target.value))
                                 }
-                                placeholder="Enter OTP"
+                                placeholder={`Enter ${OTP_LENGTH}-digit OTP`}
                                 className={INPUT_CLASS}
                                 required
                             />

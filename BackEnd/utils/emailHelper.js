@@ -3,7 +3,23 @@ const { Resend } = require("resend");
 
 const OTP_TTL_MINUTES = 5; // keep in sync with OTP_TTL_MS in the controller
 const SUPPORT_PHONE = "+91 97195 34452";
-const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+// Any valid address: password reset must reach every account, not only Gmail.
+// (Sign-up is limited to Gmail separately, in Otp/dto.js.)
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+// Wording per email: the same template serves sign-up and password reset.
+const OTP_COPY = {
+  signup: {
+    subject: "Your verification code for The Wax Studio",
+    heading: "Welcome, verify your account",
+    intro: "Thank you for joining The Wax Studio family. Use the code below to complete your registration:",
+  },
+  reset: {
+    subject: "Reset your The Wax Studio password",
+    heading: "Reset your password",
+    intro: "We received a request to reset your password. Use the code below to choose a new one:",
+  },
+};
 const OTP_REGEX = /^\d{5}$/;
 const FROM_REGEX =/^(?:[^<>"]+ <[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>|[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+)$/;
 const REPLY_TO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -109,13 +125,13 @@ const sendEmail = async ({ to, subject, html, text }) => {
   }
 };
 
-const buildOtpText = (otp) =>
-  `Your verification code for The Wax Studio is ${otp}.\n\n` +
+const buildOtpText = (otp, copy) =>
+  `${copy.heading}.\n\nYour code for The Wax Studio is ${otp}.\n\n` +
   `It expires in ${OTP_TTL_MINUTES} minutes. Keep this code confidential.\n` +
   `If you didn't request this, you can ignore this email.\n\n` +
   `Need help? Call ${SUPPORT_PHONE}.`;
 
-const buildOtpHtml = (otp) => {
+const buildOtpHtml = (otp, copy) => {
   const telHref = SUPPORT_PHONE.replace(/[^\d+]/g, "");
 
   return `
@@ -125,7 +141,7 @@ const buildOtpHtml = (otp) => {
       <meta charset="utf-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
       <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
-      <title>Verify Account - The Wax Studio</title>
+      <title>${copy.heading} - The Wax Studio</title>
       <style type="text/css">
         @media only screen and (max-width: 600px) {
           .container { width: 100% !important; }
@@ -157,11 +173,11 @@ const buildOtpHtml = (otp) => {
               <tr>
                 <td class="padding" style="padding:40px;">
                   <h2 style="margin:0 0 16px; color:#2c2c2c; font-size:18px; font-weight:600;">
-                    Welcome, verify your account
+                    ${copy.heading}
                   </h2>
 
                   <p style="margin:0 0 32px; font-size:14px; color:#555; line-height:1.6;">
-                    Thank you for joining The Wax Studio family. Use the code below to complete your registration:
+                    ${copy.intro}
                   </p>
 
                   <!-- OTP -->
@@ -210,9 +226,11 @@ const buildOtpHtml = (otp) => {
   `;
 };
 
-const sendOtp = async (toEmail, otp) => {
+// purpose: "signup" (default) or "reset"
+const sendOtp = async (toEmail, otp, { purpose = "signup" } = {}) => {
   const email = typeof toEmail === "string" ? toEmail.trim().toLowerCase() : "";
   const otpString = String(otp);
+  const copy = OTP_COPY[purpose] || OTP_COPY.signup;
 
   if (!EMAIL_REGEX.test(email)) {
     throw new Error("Invalid recipient email");
@@ -223,9 +241,9 @@ const sendOtp = async (toEmail, otp) => {
 
   await sendEmail({
     to: email,
-    subject: "Your verification code for The Wax Studio",
-    html: buildOtpHtml(otpString),
-    text: buildOtpText(otpString),
+    subject: copy.subject,
+    html: buildOtpHtml(otpString, copy),
+    text: buildOtpText(otpString, copy),
   });
 };
 

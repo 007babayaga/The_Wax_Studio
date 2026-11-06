@@ -1,11 +1,18 @@
 const { validateDateOfBirth } = require("../../../utils/userDOBvalidator");
 
+// Keep in sync with FrontEnd/src/constants/passwordRules.js.
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,64}$/;
+
+// Only plain strings: an object like { "$ne": null } would otherwise reach
+// MongoDB as a query operator.
+const isText = (value) => typeof value === "string";
+
 const validateUserSignUp = async (req, res, next) => {
     try {
         console.log("--------------Inside validateUserSignUp----------------");
 
-        const { name, dateOfBirth, email, password } = req.body;
-        const normalizedEmail = String(email || "").trim().toLowerCase();
+        const { name, dateOfBirth, email, password } = req.body || {};
+        const normalizedEmail = isText(email) ? email.trim().toLowerCase() : "";
 
         if (!name || String(name).trim().length < 3) {
             return res.status(400).json({
@@ -31,7 +38,7 @@ const validateUserSignUp = async (req, res, next) => {
         }
 
         if (password) {
-            const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,12}$/;
+            const passwordRegex = PASSWORD_REGEX;
             if (!passwordRegex.test(String(password))) {
                 return res.status(400).json({
                     isSuccess: false,
@@ -55,10 +62,10 @@ const validateUserLogin = async (req, res, next) => {
     try {
         console.log("--------------Inside validateUserLogin----------------");
 
-        const { email, password } = req.body;
-        const normalizedEmail = String(email || "").trim().toLowerCase();
+        const { email, password } = req.body || {};
+        const normalizedEmail = isText(email) ? email.trim().toLowerCase() : "";
 
-        if (!normalizedEmail || !password) {
+        if (!normalizedEmail || !isText(password) || !password) {
             return res.status(400).json({
                 isSuccess: false,
                 message: "Email and Password should not be Empty"
@@ -73,7 +80,7 @@ const validateUserLogin = async (req, res, next) => {
             });
         }
 
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,12}$/;
+        const passwordRegex = PASSWORD_REGEX;
         if (!passwordRegex.test(String(password))) {
             return res.status(400).json({
                 isSuccess: false,
@@ -96,7 +103,8 @@ const validateForgotPassword = async (req, res, next) => {
     try {
         console.log("--------------Inside validateForgotPassword----------------");
 
-        const normalizedEmail = String(req.body.email || "").trim().toLowerCase();
+        const { email } = req.body || {};
+        const normalizedEmail = isText(email) ? email.trim().toLowerCase() : "";
 
         const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
         if (!normalizedEmail || !emailRegex.test(normalizedEmail)) {
@@ -121,10 +129,10 @@ const validateResetPassword = async (req, res, next) => {
     try {
         console.log("--------------Inside validateResetPassword----------------");
 
-        const { email, otp, newPassword } = req.body;
-        const normalizedEmail = String(email || "").trim().toLowerCase();
+        const { email, otp, newPassword } = req.body || {};
+        const normalizedEmail = isText(email) ? email.trim().toLowerCase() : "";
 
-        if (!normalizedEmail || !otp || !newPassword) {
+        if (!normalizedEmail || !isText(otp) || !isText(newPassword) || !otp || !newPassword) {
             return res.status(400).json({
                 isSuccess: false,
                 message: "Email, OTP and new password are required"
@@ -146,7 +154,7 @@ const validateResetPassword = async (req, res, next) => {
             });
         }
 
-        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,12}$/;
+        const passwordRegex = PASSWORD_REGEX;
         if (!passwordRegex.test(String(newPassword))) {
             return res.status(400).json({
                 isSuccess: false,

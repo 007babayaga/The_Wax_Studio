@@ -1,7 +1,7 @@
 // Mirrors the backend password regex in BackEnd/api/v1/Auth/dto.js:
-// /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,12}$/
+// /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,64}$/
 const PASSWORD_MIN_LENGTH = 8;
-const PASSWORD_MAX_LENGTH = 12;
+const PASSWORD_MAX_LENGTH = 64;
 
 const PASSWORD_RULES = [
     {
