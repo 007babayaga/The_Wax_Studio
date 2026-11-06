@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 import {
     FiChevronDown,
     FiClock,

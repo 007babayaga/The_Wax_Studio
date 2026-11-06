@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 import { useNavigate } from "react-router";
 import { GoogleAuthButton } from "../../Components/UI/GoogleAuthButton.jsx";
 import {

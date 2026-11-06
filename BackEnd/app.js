@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 
 const { apiRouter } = require('./api/routes');
 const { connectDB } = require('./config/db');
+const { prepareOtpCollection } = require('./utils/otpService');
 
 // Fail fast: without these, every login or token check would fail at runtime.
 const REQUIRED_ENV = ['MONGO_DB_URL', 'JWT_SECRET', 'REFRESH_TOKEN_SECRET', 'PORT_NUMBER'];
@@ -102,8 +103,10 @@ app.get("/", (req, res) => {
     });
 });
 
-// Only accept requests once the database is reachable.
+// Only accept requests once the database is reachable and the OTP indexes
+// (unique email+purpose, auto-expiry) exist; the OTP limits depend on them.
 connectDB()
+    .then(() => prepareOtpCollection())
     .then(() => {
         app.listen(process.env.PORT_NUMBER, () => {
             console.log("------------------Server Started✅--------------");

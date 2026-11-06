@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 
 import { ApiError, getErrorMessage } from "../../Services/Api.js";
 import { forgotPassword } from "../../Services/AuthService.js";

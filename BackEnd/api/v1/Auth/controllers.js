@@ -1,15 +1,19 @@
 ﻿const { userModel } = require("../../../models/userSchema");
-const { emailOtpModel } = require("../../../models/emailOtpSchema");
-const { sendOtp } = require("../../../utils/emailHelper");
+const {
+    OTP_PURPOSES,
+    SIGNUP_COOKIE_NAME,
+    issueOtp,
+    verifyOtp,
+    consumeOtp,
+    consumeSignupVerification,
+    deleteAllOtpsForEmail
+} = require("../../../utils/otpService");
+const { baseCookieOptions } = require("../../../utils/cookieOptions");
 const { uploadImageBuffer, deleteImage } = require("../../../utils/cloudinaryHelper");
 const { OAuth2Client } = require("google-auth-library");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const crypto = require('crypto');
-
-// How long after verifying the email OTP the user has to finish signing up.
-// Keep in sync with the verified-OTP handling in Otp/controller.js.
-const SIGNUP_VERIFIED_WINDOW_MS = 30 * 60 * 1000;
 
 const userSignUpController = async (req, res) => {
     try {
@@ -33,27 +37,40 @@ const userSignUpController = async (req, res) => {
         }
 
         // The email must have been proven with an OTP (POST /otp/verifyEmailOtp)
-        // shortly before; otherwise anyone could register any address.
-        const verifiedOtp = await emailOtpModel.findOne({
+        // shortly before, by THIS browser: the verify step set an httpOnly
+        // cookie holding a one-time token. Without it, anyone could finish the
+        // sign-up for an address someone else just verified.
+        const verified = await consumeSignupVerification({
             email: normalizedEmail,
-            isVerified: true,
-            verifiedAt: { $gte: new Date(Date.now() - SIGNUP_VERIFIED_WINDOW_MS) }
+            token: req.cookies?.[SIGNUP_COOKIE_NAME]
         });
-        if (!verifiedOtp) {
+        if (!verified) {
             return res.status(403).json({
                 isSuccess: false,
                 message: "Please verify your email with the OTP before signing up"
             });
         }
 
-        await userModel.create({
-            name: String(name).trim(),
-            dateOfBirth,
-            email: normalizedEmail,
-            password,
-            isVerified: true
-        });
-        await emailOtpModel.deleteMany({ email: normalizedEmail });
+        try {
+            await userModel.create({
+                name: String(name).trim(),
+                dateOfBirth,
+                email: normalizedEmail,
+                password,
+                isVerified: true
+            });
+        } catch (err) {
+            // Lost a race with another sign-up for the same email.
+            if (err?.code === 11000) {
+                return res.status(409).json({
+                    isSuccess: false,
+                    message: "User already exists with this email"
+                });
+            }
+            throw err;
+        }
+        res.clearCookie(SIGNUP_COOKIE_NAME, baseCookieOptions());
+        await deleteAllOtpsForEmail(normalizedEmail);
 
         return res.status(200).json({
             isSuccess: true,
@@ -86,21 +103,9 @@ const createRefreshToken = (user, jti) => jwt.sign(
     { expiresIn: '30d' }
 );
 
-const isProd = process.env.NODE_ENV === "production";
-
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // Oldest sessions (devices) are dropped beyond this many.
 const MAX_SESSIONS_PER_USER = 10;
-
-// One set of attributes for setting AND clearing. Browsers ignore a clear
-// whose SameSite/Secure don't match the cookie, so logout would silently
-// fail in production (cross-site, SameSite=None) if these drifted apart.
-const baseCookieOptions = () => ({
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'None' : 'Lax',
-    path: '/'
-});
 
 const setAuthCookies = (res, accessToken, refreshToken) => {
     res.cookie('access_token', accessToken, {
@@ -334,10 +339,6 @@ const userLogoutController = async (req, res) => {
     }
 };
 
-const RESET_OTP_TTL_MS = 5 * 60 * 1000; // keep in sync with OTP_TTL_MINUTES in emailHelper
-const RESET_OTP_COOLDOWN_MS = 2 * 60 * 1000;
-const RESET_OTP_MAX_ATTEMPTS = 5;
-
 const forgotPasswordController = async (req, res) => {
     try {
         console.log("--------------Inside forgotPasswordController----------------");
@@ -350,34 +351,34 @@ const forgotPasswordController = async (req, res) => {
         };
 
         const user = await userModel.findOne({ email });
-        if (!user || user.authProvider !== "local") {
-            return res.status(200).json(genericResponse);
-        }
+        const canReset = Boolean(user && user.authProvider === "local");
 
-        const existingOtp = await emailOtpModel.findOne({ email });
-        if (existingOtp?.lastSentAt) {
-            const timeSinceLastOtp = Date.now() - new Date(existingOtp.lastSentAt).getTime();
-            if (timeSinceLastOtp < RESET_OTP_COOLDOWN_MS) {
-                const remainingSeconds = Math.ceil((RESET_OTP_COOLDOWN_MS - timeSinceLastOtp) / 1000);
-                return res.status(429).json({
-                    isSuccess: false,
-                    message: `Please wait ${remainingSeconds} seconds before requesting another OTP`,
-                    retryAfterSeconds: remainingSeconds
-                });
-            }
-        }
-
-        const otp = crypto.randomInt(10000, 100000).toString(); // 5-digit OTP
-
-        await emailOtpModel.deleteMany({ email });
-        await emailOtpModel.create({
+        // Unknown emails go through the same cooldown and send limit (only the
+        // email itself is skipped), so a 429 doesn't reveal that an account exists.
+        const result = await issueOtp({
             email,
-            otp,
-            otpExpiryTime: new Date(Date.now() + RESET_OTP_TTL_MS),
-            lastSentAt: new Date()
+            purpose: OTP_PURPOSES.RESET,
+            deliver: canReset
         });
 
-        await sendOtp(email, otp, { purpose: "reset" });
+        if (result.status === "cooldown" || result.status === "limit") {
+            const seconds = result.retryAfterSeconds;
+            const message = result.status === "cooldown"
+                ? `Please wait ${seconds} seconds before requesting another OTP`
+                : `Too many OTP requests for this email. Please try again in ${Math.ceil(seconds / 60)} minutes`;
+            return res.status(429).json({
+                isSuccess: false,
+                message,
+                retryAfterSeconds: seconds
+            });
+        }
+
+        if (result.status === "send_failed") {
+            // Logged for us; the client still gets the generic answer so a
+            // failure doesn't confirm the account exists. The cooldown was
+            // lifted, so the user can simply ask again.
+            console.log("-----------Reset OTP email failed------", result.error?.message);
+        }
 
         return res.status(200).json(genericResponse);
     }
@@ -395,42 +396,37 @@ const resetPasswordController = async (req, res) => {
         console.log("--------------Inside resetPasswordController----------------");
         const { email, otp, newPassword } = req.body;
 
-        const otpDoc = await emailOtpModel.findOne({ email });
-        if (!otpDoc) {
-            return res.status(400).json({
-                isSuccess: false,
-                message: "Invalid or expired OTP"
-            });
-        }
+        const result = await verifyOtp({ email, otp, purpose: OTP_PURPOSES.RESET });
 
-        if (new Date() > new Date(otpDoc.otpExpiryTime)) {
-            await emailOtpModel.deleteOne({ _id: otpDoc._id });
-            return res.status(400).json({
-                isSuccess: false,
-                message: "OTP has expired"
-            });
-        }
-
-        const isOtpMatched = await otpDoc.compareOtp(otp);
-        if (!isOtpMatched) {
-            const attempts = (otpDoc.attempts || 0) + 1;
-            if (attempts >= RESET_OTP_MAX_ATTEMPTS) {
-                await emailOtpModel.deleteOne({ _id: otpDoc._id });
+        switch (result.status) {
+            case "not_found":
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Invalid or expired OTP"
+                });
+            case "expired":
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "OTP has expired"
+                });
+            case "locked":
                 return res.status(429).json({
                     isSuccess: false,
                     message: "Too many invalid attempts. Please request a new OTP"
                 });
-            }
-            await emailOtpModel.updateOne({ _id: otpDoc._id }, { $set: { attempts } });
-            return res.status(400).json({
-                isSuccess: false,
-                message: "Invalid OTP"
-            });
+            case "invalid":
+                return res.status(400).json({
+                    isSuccess: false,
+                    message: "Invalid OTP",
+                    attemptsLeft: result.attemptsLeft
+                });
         }
 
-        const user = await userModel.findOne({ email });
+        // Use the code up first: if two requests with the right code race,
+        // only one gets to change the password.
+        const consumed = await consumeOtp(result.record);
+        const user = consumed ? await userModel.findOne({ email }) : null;
         if (!user || user.authProvider !== "local") {
-            await emailOtpModel.deleteOne({ _id: otpDoc._id });
             return res.status(400).json({
                 isSuccess: false,
                 message: "Invalid or expired OTP"
@@ -443,8 +439,6 @@ const resetPasswordController = async (req, res) => {
         user.tokenVersion = (user.tokenVersion || 0) + 1;
         user.sessions = [];
         await user.save();
-
-        await emailOtpModel.deleteOne({ _id: otpDoc._id });
 
         clearAuthCookies(res);
 
@@ -728,7 +722,7 @@ const deleteAccountController = async (req, res) => {
         const profilePicturePublicId = user.profilePicturePublicId;
 
         await userModel.deleteOne({ _id: user._id });
-        await emailOtpModel.deleteMany({ email: user.email });
+        await deleteAllOtpsForEmail(user.email);
 
         // Best effort: a failed cleanup shouldn't fail the deletion.
         if (profilePicturePublicId) {

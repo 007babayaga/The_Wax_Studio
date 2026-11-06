@@ -1,5 +1,5 @@
 import { GoogleLogin } from "@react-oauth/google";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 import { getErrorMessage } from "../../Services/Api";
 import { googleLogin } from "../../Services/AuthService";
 

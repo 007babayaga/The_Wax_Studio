@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 
 import {
     PasswordMatchHint,
