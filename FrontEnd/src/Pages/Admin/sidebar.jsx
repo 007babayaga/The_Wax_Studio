@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 import { useAuth } from "../../Context/Authcontext.jsx";
 import { getErrorMessage } from "../../Services/Api.js";
 import { ROUTES } from "../../constants/routes.js";

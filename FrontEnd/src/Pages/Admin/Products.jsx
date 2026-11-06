@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import { toast } from "react-toastify";
+import { toast } from "../../utils/toast.js";
 
 import { getErrorMessage } from "../../Services/Api.js";
 import {

@@ -11,9 +11,13 @@ process.env.NODE_ENV = 'test';
 
 // --- fakes, installed before the controllers are required -----------------
 const sentOtps = new Map();
+const sentPurposes = new Map();
+const failingEmails = new Set(); // sends to these addresses throw
 const emailHelper = require('../utils/emailHelper');
-emailHelper.sendOtp = async (email, otp) => {
+emailHelper.sendOtp = async (email, otp, { purpose = 'signup' } = {}) => {
+    if (failingEmails.has(email)) throw new Error('email provider down');
     sentOtps.set(email, String(otp));
+    sentPurposes.set(email, purpose);
 };
 
 const googlePayloads = new Map();
@@ -33,6 +37,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { apiRouter } = require('../api/routes');
 const { userModel } = require('../models/userSchema');
 const { emailOtpModel } = require('../models/emailOtpSchema');
+const { prepareOtpCollection } = require('../utils/otpService');
 
 let mongo;
 let server;
@@ -41,6 +46,8 @@ let baseUrl;
 test.before(async () => {
     mongo = await MongoMemoryServer.create();
     await mongoose.connect(mongo.getUri(), { dbName: 'auth-tests' });
+    // Same startup step as app.js: the OTP limits rely on these indexes.
+    await prepareOtpCollection();
 
     const app = express();
     app.use(express.json());
@@ -250,6 +257,167 @@ test('otp: rejects a MongoDB operator instead of an email', async () => {
     assert.equal(after.otp, before.otp, "someone else's OTP was regenerated");
 });
 
+const startSignup = (client, email) =>
+    client.post('/otp/toEmail', { email, name: 'Test User', dateOfBirth: '1995-05-20' });
+
+// Lets the next OTP request for this email skip the 2-minute cooldown.
+const skipCooldown = (email, purpose) =>
+    emailOtpModel.updateOne({ email, purpose }, { $set: { lastSentAt: new Date(0) } });
+
+test('otp: parallel wrong guesses cannot get past the attempt limit', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    await startSignup(client, email);
+    const realOtp = sentOtps.get(email);
+    const wrongOtp = realOtp === '11111' ? '22222' : '11111';
+
+    // All fired at once: without an atomic counter they all read attempts = 0.
+    await Promise.all(
+        Array.from({ length: 20 }, () => client.post('/otp/verifyEmailOtp', { email, otp: wrongOtp }))
+    );
+    const record = await emailOtpModel.findOne({ email, purpose: 'signup' }).lean();
+    assert.equal(record.attempts, 5);
+
+    const withRealOtp = await client.post('/otp/verifyEmailOtp', { email, otp: realOtp });
+    assert.equal(withRealOtp.status, 429);
+});
+
+test('otp: the attempt counter starts again with a new code', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    await startSignup(client, email);
+    const wrongOtp = sentOtps.get(email) === '11111' ? '22222' : '11111';
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        await client.post('/otp/verifyEmailOtp', { email, otp: wrongOtp });
+    }
+
+    await skipCooldown(email, 'signup');
+    assert.equal((await startSignup(client, email)).status, 200);
+    const verify = await client.post('/otp/verifyEmailOtp', { email, otp: sentOtps.get(email) });
+    assert.equal(verify.status, 200);
+});
+
+test('otp: an old code stops working once a new one is sent', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    await startSignup(client, email);
+    const oldOtp = sentOtps.get(email);
+
+    await skipCooldown(email, 'signup');
+    await client.post('/otp/resendOtpToEmail', { email });
+    if (sentOtps.get(email) === oldOtp) return; // 1-in-90,000 chance of the same code
+
+    const res = await client.post('/otp/verifyEmailOtp', { email, otp: oldOtp });
+    assert.equal(res.status, 400);
+});
+
+test('otp: sending again within the cooldown gives 429 with retryAfterSeconds', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    await startSignup(client, email);
+    const again = await startSignup(client, email);
+    assert.equal(again.status, 429);
+    assert.ok(again.data.retryAfterSeconds > 0);
+});
+
+test('otp: parallel sends for one email send only one code', async () => {
+    const email = uniqueEmail();
+    const results = await Promise.all(
+        Array.from({ length: 5 }, () => startSignup(makeClient(), email))
+    );
+    assert.equal(results.filter((r) => r.status === 200).length, 1);
+    assert.equal(await emailOtpModel.countDocuments({ email }), 1);
+});
+
+test('otp: at most 5 codes per email per hour', async () => {
+    const email = uniqueEmail();
+    for (let send = 0; send < 5; send += 1) {
+        await skipCooldown(email, 'signup');
+        assert.equal((await startSignup(makeClient(), email)).status, 200);
+    }
+    await skipCooldown(email, 'signup');
+    const sixth = await startSignup(makeClient(), email);
+    assert.equal(sixth.status, 429);
+    assert.ok(sixth.data.retryAfterSeconds > 120);
+});
+
+test('otp: a failed email does not start the cooldown', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    failingEmails.add(email);
+    const failed = await startSignup(client, email);
+    assert.equal(failed.status, 503);
+
+    failingEmails.delete(email);
+    const retry = await startSignup(client, email);
+    assert.equal(retry.status, 200);
+});
+
+test('otp: resend refuses a registered email and leaves its reset code alone', async () => {
+    const { email } = await createLoggedInUser();
+    await makeClient().post('/auth/forgotPassword', { email });
+    const resetOtp = sentOtps.get(email);
+    await skipCooldown(email, 'reset');
+
+    const resend = await makeClient().post('/otp/resendOtpToEmail', { email });
+    assert.equal(resend.status, 409);
+    assert.equal(sentPurposes.get(email), 'reset');
+
+    const reset = await makeClient().post('/auth/resetPassword', { email, otp: resetOtp, newPassword: 'Newwax@123' });
+    assert.equal(reset.status, 200);
+});
+
+test('otp: a password-reset code cannot verify a sign-up', async () => {
+    const email = uniqueEmail();
+    await emailOtpModel.create({
+        email,
+        purpose: 'reset',
+        otp: await require('bcrypt').hash('12345', 4),
+        otpExpiryTime: new Date(Date.now() + 60000),
+        expiresAt: new Date(Date.now() + 60000),
+    });
+    const res = await makeClient().post('/otp/verifyEmailOtp', { email, otp: '12345' });
+    assert.equal(res.status, 400);
+});
+
+test('signup: another browser cannot finish a sign-up someone else verified', async () => {
+    const owner = makeClient();
+    const email = uniqueEmail();
+    await startSignup(owner, email);
+    await owner.post('/otp/verifyEmailOtp', { email, otp: sentOtps.get(email) });
+
+    const attacker = await signUp(makeClient(), email, 'Attacker@123');
+    assert.equal(attacker.status, 403);
+    assert.equal(await userModel.findOne({ email }), null);
+
+    // The real owner can still finish.
+    assert.equal((await signUp(owner, email)).status, 200);
+});
+
+test('signup: the verification cookie is httpOnly and cleared after sign-up', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    await startSignup(client, email);
+    const verify = await client.post('/otp/verifyEmailOtp', { email, otp: sentOtps.get(email) });
+    const cookie = verify.setCookies.find((c) => c.startsWith('signup_verification='));
+    assert.ok(cookie, 'verify should set the signup_verification cookie');
+    assert.match(cookie, /httponly/i);
+
+    await signUp(client, email);
+    assert.equal(client.jar.has('signup_verification'), false);
+});
+
+test('signup: parallel sign-ups with one verification create one account', async () => {
+    const client = makeClient();
+    const email = uniqueEmail();
+    await startSignup(client, email);
+    await client.post('/otp/verifyEmailOtp', { email, otp: sentOtps.get(email) });
+
+    const results = await Promise.all(Array.from({ length: 5 }, () => signUp(client, email)));
+    assert.equal(results.filter((r) => r.status === 200).length, 1);
+    assert.equal(await userModel.countDocuments({ email }), 1);
+});
+
 // --- login -----------------------------------------------------------------
 test('login: correct password sets httpOnly cookies and returns no secrets', async () => {
     const email = uniqueEmail();
@@ -385,6 +553,32 @@ test('forgot password: same answer for known and unknown emails', async () => {
     assert.equal(known.status, 200);
     assert.equal(unknown.status, 200);
     assert.equal(known.data.message, unknown.data.message);
+});
+
+test('forgot password: a second request is rate-limited the same way for unknown emails', async () => {
+    const { email } = await createLoggedInUser();
+    const unknown = uniqueEmail();
+    await makeClient().post('/auth/forgotPassword', { email });
+    await makeClient().post('/auth/forgotPassword', { email: unknown });
+
+    const knownAgain = await makeClient().post('/auth/forgotPassword', { email });
+    const unknownAgain = await makeClient().post('/auth/forgotPassword', { email: unknown });
+    assert.equal(knownAgain.status, 429);
+    assert.equal(unknownAgain.status, 429);
+    assert.equal(sentOtps.has(unknown), false, 'no email should go to an address without an account');
+});
+
+test('reset password: one code changes the password only once, even in parallel', async () => {
+    const { email } = await createLoggedInUser();
+    await makeClient().post('/auth/forgotPassword', { email });
+    const otp = sentOtps.get(email);
+
+    const results = await Promise.all(
+        ['Newwax@111', 'Newwax@222', 'Newwax@333'].map((newPassword) =>
+            makeClient().post('/auth/resetPassword', { email, otp, newPassword })
+        )
+    );
+    assert.equal(results.filter((r) => r.status === 200).length, 1);
 });
 
 test('reset password: works with the OTP and logs out every session', async () => {

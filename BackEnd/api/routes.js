@@ -2,7 +2,6 @@ const express = require('express');
 const { authRouter } = require('./v1/Auth/routes');
 const { otpRouter } = require('./v1/Otp/routes');
 const { adminRouter } = require('./v1/Admin/routes');
-const rateLimit = require('express-rate-limit');
 
 
 const apiRouter = express.Router({ caseSensitive: true });
