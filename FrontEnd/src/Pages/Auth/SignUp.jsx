@@ -281,9 +281,15 @@ const SignUp = () => {
 
             toast.success(response?.message || "Account created successfully");
 
+            // The backend signs the new user in, so go straight to the app.
             // The component unmounts on navigation, which discards the form
             // (including both passwords) from memory.
-            navigate(ROUTES.LOGIN, { replace: true });
+            if (response?.user) {
+                login(response.user);
+                navigate(getPostLoginRoute(response.user.role), { replace: true });
+            } else {
+                navigate(ROUTES.LOGIN, { replace: true });
+            }
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {

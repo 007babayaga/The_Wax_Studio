@@ -51,8 +51,9 @@ const userSignUpController = async (req, res) => {
             });
         }
 
+        let user;
         try {
-            await userModel.create({
+            user = await userModel.create({
                 name: String(name).trim(),
                 dateOfBirth,
                 email: normalizedEmail,
@@ -72,9 +73,14 @@ const userSignUpController = async (req, res) => {
         res.clearCookie(SIGNUP_COOKIE_NAME, baseCookieOptions());
         await deleteAllOtpsForEmail(normalizedEmail);
 
+        // The email was just proven with an OTP, so sign the new user in
+        // straight away instead of making them log in again.
+        await startSession(user, req, res);
+
         return res.status(200).json({
             isSuccess: true,
-            message: "SignUp Success!"
+            message: "SignUp Success!",
+            user: toPublicUser(user)
         });
     }
     catch (err) {
@@ -150,6 +156,28 @@ const addSession = async (userId, jti, req) => {
     );
 };
 
+// Issues tokens, records the session and sets the auth cookies.
+const startSession = async (user, req, res) => {
+    const jti = crypto.randomBytes(16).toString('hex');
+    const accessToken = createAccessToken(user);
+    const refreshToken = createRefreshToken(user, jti);
+
+    await addSession(user._id, jti, req);
+    setAuthCookies(res, accessToken, refreshToken);
+};
+
+// The user fields the frontend is allowed to see.
+const toPublicUser = (user) => ({
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    profilePicture: user.profilePicture,
+    phone: user.phone,
+    notificationPreferences: user.notificationPreferences,
+    authProvider: user.authProvider
+});
+
 const googleAuthController = async (req, res) => {
     try {
         const { idToken } = req.body || {};
@@ -204,28 +232,12 @@ const googleAuthController = async (req, res) => {
             { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
         );
 
-        const jti = crypto.randomBytes(16).toString('hex');
-
-        const accessToken = createAccessToken(user);
-        const refreshToken = createRefreshToken(user, jti);
-
-        await addSession(user._id, jti, req);
-
-        setAuthCookies(res, accessToken, refreshToken);
+        await startSession(user, req, res);
 
         return res.status(200).json({
             isSuccess: true,
             message: 'Signed in with Google successfully',
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                profilePicture: user.profilePicture,
-                phone: user.phone,
-                notificationPreferences: user.notificationPreferences,
-                authProvider: user.authProvider
-            }
+            user: toPublicUser(user)
         });
     } catch (err) {
         console.error('googleAuthController error:', err.message);
@@ -269,28 +281,12 @@ const userLoginController = async (req, res) => {
             });
         }
 
-        const jti = crypto.randomBytes(16).toString('hex');
-
-        const accessToken = createAccessToken(user);
-        const refreshToken = createRefreshToken(user, jti);
-
-        await addSession(user._id, jti, req);
-
-        setAuthCookies(res, accessToken, refreshToken);
+        await startSession(user, req, res);
 
         return res.status(200).json({
             isSuccess: true,
             message: "Login Success!",
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                profilePicture: user.profilePicture,
-                phone: user.phone,
-                notificationPreferences: user.notificationPreferences,
-                authProvider: user.authProvider
-            }
+            user: toPublicUser(user)
         });
     }
     catch (err) {
