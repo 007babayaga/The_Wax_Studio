@@ -165,6 +165,13 @@ test('signup: full OTP flow creates an account', async () => {
     const created = await signUp(client, email);
     assert.equal(created.status, 200);
     assert.ok(await userModel.findOne({ email }));
+
+    // The new user is signed in straight away.
+    assert.equal(created.data.user.email, email);
+    assert.ok(client.jar.get('access_token'), 'signup should set the access cookie');
+    assert.ok(client.jar.get('refresh_token'), 'signup should set the refresh cookie');
+    const me = await client.get('/auth/userStatus');
+    assert.equal(me.status, 200, `status failed: ${JSON.stringify(me.data)}`);
 });
 
 test('signup: is refused when the email was never verified with an OTP', async () => {
